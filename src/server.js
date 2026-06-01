@@ -90,6 +90,89 @@ CREATE TABLE IF NOT EXISTS timeseq_predictions (
   evaluated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS gpt55_analyst_v3_predictions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_roundno TEXT NOT NULL UNIQUE,
+  based_on_roundno TEXT,
+  generated_at TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  matrix_json TEXT NOT NULL,
+  stats_json TEXT NOT NULL,
+  overlap_json TEXT NOT NULL,
+  top3_json TEXT NOT NULL,
+  reason_json TEXT NOT NULL,
+  error_json TEXT,
+  actual_json TEXT,
+  compare_json TEXT,
+  top1_hits INTEGER,
+  top3_hits INTEGER,
+  possible INTEGER,
+  top1_rate REAL,
+  top3_rate REAL,
+  evaluated_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_gpt55_analyst_v3_target ON gpt55_analyst_v3_predictions(target_roundno DESC);
+CREATE INDEX IF NOT EXISTS idx_gpt55_analyst_v3_eval ON gpt55_analyst_v3_predictions(evaluated_at DESC);
+
+CREATE TABLE IF NOT EXISTS gpt55_analyst_model_outputs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version TEXT NOT NULL,
+  target_roundno TEXT NOT NULL,
+  model_name TEXT NOT NULL,
+  signal_type TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  top3_json TEXT NOT NULL,
+  score REAL,
+  generated_at TEXT NOT NULL,
+  UNIQUE(version, target_roundno, model_name, position)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gpt55_model_outputs_lookup ON gpt55_analyst_model_outputs(version, target_roundno DESC, position);
+
+CREATE TABLE IF NOT EXISTS gpt55_analyst_model_position_stats (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version TEXT NOT NULL,
+  model_name TEXT NOT NULL,
+  signal_type TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  samples INTEGER,
+  top1_hits INTEGER,
+  top3_hits INTEGER,
+  top1_rate REAL,
+  top3_rate REAL,
+  current_miss_streak INTEGER,
+  weight REAL,
+  updated_at TEXT NOT NULL,
+  UNIQUE(version, model_name, position)
+);
+
+CREATE TABLE IF NOT EXISTS gpt55_analyst_error_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version TEXT NOT NULL,
+  target_roundno TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  actual TEXT,
+  predicted_top3_json TEXT,
+  miss_reason TEXT,
+  bad_models_json TEXT,
+  suggested_adjustment TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE(version, target_roundno, position)
+);
+
+CREATE TABLE IF NOT EXISTS gpt55_analyst_strategy_state (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  active_strategy TEXT,
+  model_weights_json TEXT,
+  recent_good_signals_json TEXT,
+  recent_bad_signals_json TEXT,
+  updated_at TEXT NOT NULL,
+  UNIQUE(version, position)
+);
+
 CREATE TABLE IF NOT EXISTS gpt55_analyst_v2_predictions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   target_roundno TEXT NOT NULL UNIQUE,
@@ -1641,6 +1724,172 @@ function buildModelPositionReliability(limit = 100) {
   }).sort((a, b) => b.weight - a.weight));
 }
 
+function buildWindowModelRows(historyRows, windowSize, label) {
+  const rows = [];
+  const slice = historyRows.slice(-windowSize);
+  for (let pos = 0; pos < 10; pos++) {
+    const counts = {};
+    for (const draw of slice) {
+      const n = parseDrawNumbers(draw).map((x) => String(x).padStart(2, '0'))[pos];
+      if (n) counts[n] = (counts[n] || 0) + 1;
+    }
+    const top = Array.from({ length: 10 }, (_, i) => String(i + 1).padStart(2, '0')).map((num) => ({ num, c: counts[num] || 0 })).sort((a, b) => b.c - a.c || a.num.localeCompare(b.num)).slice(0, 3);
+    rows.push({ label: `第${pos + 1}名`, top3: top.map((x) => x.num), score: top[0]?.c || 0, note: `${label} window ${windowSize}` });
+  }
+  return rows;
+}
+
+function buildGapModelRows(historyRows) {
+  const rows = [];
+  for (let pos = 0; pos < 10; pos++) {
+    const lastSeen = {};
+    historyRows.forEach((draw, idx) => {
+      const n = parseDrawNumbers(draw).map((x) => String(x).padStart(2, '0'))[pos];
+      if (n) lastSeen[n] = idx;
+    });
+    const total = historyRows.length;
+    const top = Array.from({ length: 10 }, (_, i) => {
+      const num = String(i + 1).padStart(2, '0');
+      const gap = lastSeen[num] == null ? total : total - 1 - lastSeen[num];
+      return { num, gap, score: gap >= 8 && gap <= 24 ? gap + 10 : gap };
+    }).sort((a, b) => b.score - a.score || a.num.localeCompare(b.num)).slice(0, 3);
+    rows.push({ label: `第${pos + 1}名`, top3: top.map((x) => x.num), score: top[0]?.score || 0, note: '遗漏/回补模型' });
+  }
+  return rows;
+}
+
+function buildAntiHotModelRows(historyRows) {
+  const rows = [];
+  const recent = historyRows.slice(-30);
+  const mid = historyRows.slice(-100);
+  for (let pos = 0; pos < 10; pos++) {
+    const c30 = {}, c100 = {};
+    for (const draw of recent) { const n = parseDrawNumbers(draw).map((x) => String(x).padStart(2, '0'))[pos]; if (n) c30[n] = (c30[n] || 0) + 1; }
+    for (const draw of mid) { const n = parseDrawNumbers(draw).map((x) => String(x).padStart(2, '0'))[pos]; if (n) c100[n] = (c100[n] || 0) + 1; }
+    const top = Array.from({ length: 10 }, (_, i) => {
+      const num = String(i + 1).padStart(2, '0');
+      const hot30 = (c30[num] || 0) / 30;
+      const hot100 = (c100[num] || 0) / 100;
+      return { num, score: hot100 - Math.max(0, hot30 - hot100) * 1.5 };
+    }).sort((a, b) => b.score - a.score || a.num.localeCompare(b.num)).slice(0, 3);
+    rows.push({ label: `第${pos + 1}名`, top3: top.map((x) => x.num), score: Number((top[0]?.score || 0).toFixed(4)), note: '反热模型' });
+  }
+  return rows;
+}
+
+function getAnalystV3ModelMatrix(row, historyRows) {
+  const model = row?.model || {};
+  const main = row?.top3 || [];
+  const matrix = [
+    { name: 'main', signal: 'ensemble', rows: main },
+    { name: 'v2', signal: 'ensemble', rows: buildGpt55BypassRows(main, model) },
+    { name: 'v3', signal: 'ensemble', rows: buildGpt55BypassV3Rows(main, model) },
+    { name: 'frequency', signal: 'frequency', rows: model.frequency || [] },
+    { name: 'markov', signal: 'transition', rows: model.markov || [] },
+    { name: 'xgboost', signal: 'stat', rows: model.xgboost || [] },
+    { name: 'lstm', signal: 'sequence', rows: model.lstm || [] },
+    { name: 'window30', signal: 'window', rows: buildWindowModelRows(historyRows, 30, '短窗口') },
+    { name: 'window100', signal: 'window', rows: buildWindowModelRows(historyRows, 100, '中窗口') },
+    { name: 'window300', signal: 'window', rows: buildWindowModelRows(historyRows, 300, '长窗口') },
+    { name: 'gap', signal: 'gap', rows: buildGapModelRows(historyRows) },
+    { name: 'anti_hot', signal: 'anti_hot', rows: buildAntiHotModelRows(historyRows) },
+  ];
+  return matrix.filter((m) => Array.isArray(m.rows) && m.rows.length);
+}
+
+function computeModelPositionStatsFromMatrix(historyRows, predRows, limit = 100) {
+  const stats = {};
+  const rows = predRows.filter((r) => r.evaluated_at).slice(0, limit);
+  for (const row of rows) {
+    const baseDraw = getDrawByRound(row.based_on_roundno) || getDrawByRound(String(Number(row.target_roundno || 0) - 1));
+    const actualDraw = getDrawByRound(row.target_roundno);
+    if (!baseDraw || !actualDraw) continue;
+    const hist = db.prepare('SELECT * FROM draws WHERE roundno <= ? ORDER BY roundno DESC LIMIT 360').all(baseDraw.roundno).reverse();
+    const matrix = getAnalystV3ModelMatrix(row, hist);
+    const actual = parseDrawNumbers(actualDraw).map((x) => String(x).padStart(2, '0'));
+    for (const m of matrix) {
+      for (let pos = 0; pos < 10; pos++) {
+        const key = `${m.name}:${pos + 1}`;
+        const bucket = stats[key] || { model: m.name, signal: m.signal, position: pos + 1, samples: 0, top1Hits: 0, top3Hits: 0, currentMissStreak: 0 };
+        const candidates = (m.rows[pos]?.top3 || []).map((x) => String(x).padStart(2, '0'));
+        if (!candidates.length || !actual[pos]) continue;
+        bucket.samples += 1;
+        if (candidates[0] === actual[pos]) bucket.top1Hits += 1;
+        if (candidates.includes(actual[pos])) { bucket.top3Hits += 1; bucket.currentMissStreak = 0; } else bucket.currentMissStreak += 1;
+        stats[key] = bucket;
+      }
+    }
+  }
+  return Object.values(stats).map((s) => {
+    const top1Rate = s.samples ? s.top1Hits / s.samples : 0;
+    const top3Rate = s.samples ? s.top3Hits / s.samples : 0;
+    return { ...s, top1Rate: Number((top1Rate * 100).toFixed(2)), top3Rate: Number((top3Rate * 100).toFixed(2)), weight: Number(Math.max(0.2, Math.min(3, 0.4 + top1Rate * 4 + top3Rate * 1.4 - s.currentMissStreak * 0.04)).toFixed(4)) };
+  });
+}
+
+function buildAnalystV3Prediction(matrix, stats) {
+  const byModelPos = Object.fromEntries(stats.map((s) => [`${s.model}:${s.position}`, s]));
+  const top3 = [], overlap = [], reasons = [];
+  for (let pos = 0; pos < 10; pos++) {
+    const nums = {};
+    for (const m of matrix) {
+      const st = byModelPos[`${m.name}:${pos + 1}`] || { weight: 1, top1Rate: 0, top3Rate: 0 };
+      (m.rows[pos]?.top3 || []).forEach((n, idx) => {
+        const num = String(n).padStart(2, '0');
+        const item = nums[num] || { num, score: 0, models: [], signalTypes: new Set() };
+        item.score += Math.max(0.1, (3 - idx * 0.65) * st.weight);
+        item.models.push({ model: m.name, signal: m.signal, weight: st.weight, rank: idx + 1, top3Rate: st.top3Rate });
+        item.signalTypes.add(m.signal);
+        nums[num] = item;
+      });
+    }
+    const ranked = Object.values(nums).map((x) => ({ ...x, signalCount: x.signalTypes.size, modelCount: x.models.length, finalScore: Number((x.score + Math.min(1.4, x.signalTypes.size * 0.22) + Math.min(1.2, x.models.length * 0.08)).toFixed(4)) })).sort((a, b) => b.finalScore - a.finalScore || a.num.localeCompare(b.num));
+    const picks = ranked.slice(0, 3).map((x) => x.num);
+    top3.push({ label: `第${pos + 1}名`, top3: picks, score: ranked[0]?.finalScore || 0, confidence: Number(Math.min(0.99, (ranked[0]?.finalScore || 0) / Math.max(1, ranked.slice(0, 3).reduce((a, x) => a + x.finalScore, 0))).toFixed(4)), source: 'gpt55-analyst-v3', note: '多模型位置矩阵 + 加权重合率 + 信号类型可靠度' });
+    overlap.push({ label: `第${pos + 1}名`, candidates: ranked.slice(0, 6).map((x) => ({ num: x.num, score: x.finalScore, modelCount: x.modelCount, signalCount: x.signalCount, models: x.models.slice(0, 6) })) });
+    reasons.push({ label: `第${pos + 1}名`, selected: picks, reason: `按模型可靠度和重合率选择 ${picks.join('/')}`, strongest: ranked[0] || null });
+  }
+  return { top3, overlap, reasons };
+}
+
+function materializeAnalystV3(limit = 60) {
+  const predRows = timeseqPredictionHistory(Math.max(100, limit));
+  const stats = computeModelPositionStatsFromMatrix([], predRows, 100);
+  const generatedAt = nowIso();
+  const predStmt = db.prepare(`INSERT INTO gpt55_analyst_v3_predictions (target_roundno,based_on_roundno,generated_at,model_version,matrix_json,stats_json,overlap_json,top3_json,reason_json,error_json,actual_json,compare_json,top1_hits,top3_hits,possible,top1_rate,top3_rate,evaluated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(target_roundno) DO UPDATE SET based_on_roundno=excluded.based_on_roundno,generated_at=excluded.generated_at,model_version=excluded.model_version,matrix_json=excluded.matrix_json,stats_json=excluded.stats_json,overlap_json=excluded.overlap_json,top3_json=excluded.top3_json,reason_json=excluded.reason_json,error_json=excluded.error_json,actual_json=excluded.actual_json,compare_json=excluded.compare_json,top1_hits=excluded.top1_hits,top3_hits=excluded.top3_hits,possible=excluded.possible,top1_rate=excluded.top1_rate,top3_rate=excluded.top3_rate,evaluated_at=excluded.evaluated_at`);
+  const outStmt = db.prepare(`INSERT INTO gpt55_analyst_model_outputs (version,target_roundno,model_name,signal_type,position,top3_json,score,generated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(version,target_roundno,model_name,position) DO UPDATE SET signal_type=excluded.signal_type,top3_json=excluded.top3_json,score=excluded.score,generated_at=excluded.generated_at`);
+  const statStmt = db.prepare(`INSERT INTO gpt55_analyst_model_position_stats (version,model_name,signal_type,position,samples,top1_hits,top3_hits,top1_rate,top3_rate,current_miss_streak,weight,updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(version,model_name,position) DO UPDATE SET samples=excluded.samples,top1_hits=excluded.top1_hits,top3_hits=excluded.top3_hits,top1_rate=excluded.top1_rate,top3_rate=excluded.top3_rate,current_miss_streak=excluded.current_miss_streak,weight=excluded.weight,updated_at=excluded.updated_at`);
+  for (const s of stats) statStmt.run('v3', s.model, s.signal, s.position, s.samples, s.top1Hits, s.top3Hits, s.top1Rate, s.top3Rate, s.currentMissStreak, s.weight, generatedAt);
+  let written = 0;
+  for (const row of predRows.slice(0, limit)) {
+    const baseDraw = getDrawByRound(row.based_on_roundno) || getDrawByRound(String(Number(row.target_roundno || 0) - 1));
+    if (!baseDraw) continue;
+    const hist = db.prepare('SELECT * FROM draws WHERE roundno <= ? ORDER BY roundno DESC LIMIT 360').all(baseDraw.roundno).reverse();
+    const matrix = getAnalystV3ModelMatrix(row, hist);
+    const pred = buildAnalystV3Prediction(matrix, stats);
+    const cmp = compareAnalystPrediction(row.target_roundno, pred.top3);
+    const errors = buildAnalystError(cmp.compare);
+    const possible = cmp.possible || 10;
+    for (const m of matrix) for (let pos = 0; pos < Math.min(10, m.rows.length); pos++) outStmt.run('v3', String(row.target_roundno || ''), m.name, m.signal, pos + 1, JSON.stringify(m.rows[pos]?.top3 || []), Number(m.rows[pos]?.score || 0), generatedAt);
+    predStmt.run(String(row.target_roundno || ''), row.based_on_roundno ? String(row.based_on_roundno) : null, generatedAt, 'gpt55-analyst-v3', JSON.stringify(matrix.map((m) => ({ name: m.name, signal: m.signal, rows: m.rows }))), JSON.stringify(stats), JSON.stringify(pred.overlap), JSON.stringify(pred.top3), JSON.stringify(pred.reasons), JSON.stringify(errors), JSON.stringify(cmp.actual), JSON.stringify(cmp.compare), cmp.top1Hits, cmp.top3Hits, possible, possible ? (cmp.top1Hits / possible) * 100 : 0, possible ? (cmp.top3Hits / possible) * 100 : 0, row.evaluated_at || null);
+    written += 1;
+  }
+  return { written, generatedAt };
+}
+
+function readAnalystV3(limit = 30) {
+  const existing = db.prepare('SELECT COUNT(*) AS c FROM gpt55_analyst_v3_predictions').get()?.c || 0;
+  const write = existing >= Math.max(1, Number(limit) || 30)
+    ? { written: 0, generatedAt: nowIso(), cached: true }
+    : materializeAnalystV3(Math.max(60, limit));
+  const rows = db.prepare('SELECT * FROM gpt55_analyst_v3_predictions ORDER BY COALESCE(evaluated_at, generated_at) DESC, target_roundno DESC LIMIT ?').all(limit).map((row) => ({ ...row, matrix: parseJsonSafe(row.matrix_json, []), stats: parseJsonSafe(row.stats_json, []), overlap: parseJsonSafe(row.overlap_json, []), top3: parseJsonSafe(row.top3_json, []), reasons: parseJsonSafe(row.reason_json, []), errors: parseJsonSafe(row.error_json, []), actual: parseJsonSafe(row.actual_json, []), compare: parseJsonSafe(row.compare_json, []) }));
+  const totals = rows.reduce((acc, row) => { acc.samples += row.evaluated_at ? 1 : 0; acc.possible += Number(row.possible || 0); acc.top1Hits += Number(row.top1_hits || 0); acc.top3Hits += Number(row.top3_hits || 0); return acc; }, { samples: 0, possible: 0, top1Hits: 0, top3Hits: 0 });
+  const rate = (hits, total) => total ? Number(((hits / total) * 100).toFixed(2)) : 0;
+  const latest = rows[0] || null;
+  const statRows = db.prepare('SELECT * FROM gpt55_analyst_model_position_stats WHERE version = ? ORDER BY position ASC, weight DESC').all('v3');
+  return { enabled: true, name: 'GPT5.5 分析师 v3', table: 'gpt55_analyst_v3_predictions', mode: 'multi-model-position-overlap', description: '多模型位置矩阵 + 分位置回测 + 加权重合率 + 错误反推 + 策略状态基础。', lastWrite: write, metrics: { ...totals, top1Rate: rate(totals.top1Hits, totals.possible), top3Rate: rate(totals.top3Hits, totals.possible) }, latest, rows, modelPositionStats: statRows };
+}
+
 function buildGpt55AnalystV2Prediction(historyRows, sourcePred, reliability) {
   const top1Rows = [];
   const coverageRows = [];
@@ -2385,6 +2634,7 @@ function getXv1Summary() {
   const gpt55TableModule = getGpt55BypassTableModule(30);
   const gpt55Analyst = readGpt55Analyst(30);
   const gpt55AnalystV2 = readGpt55AnalystV2(30);
+  const gpt55AnalystV3 = readAnalystV3(30);
   const modelRanking = timeseqModelRanking(300);
 
   return {
@@ -2468,6 +2718,7 @@ function getXv1Summary() {
       bypassTable: gpt55TableModule,
       analyst: gpt55Analyst,
       analystV2: gpt55AnalystV2,
+      analystV3: gpt55AnalystV3,
     },
     fusion: {
       top3: xv1Next?.top3 || xv1Current?.top3 || [],
@@ -2491,6 +2742,7 @@ function getXv1Summary() {
       { path: '/bypass-table', label: '旁路独立表' },
       { path: '/gpt55-analyst', label: 'GPT5.5分析师' },
       { path: '/gpt55-analyst-v2', label: 'GPT5.5分析师v2' },
+      { path: '/gpt55-analyst-v3', label: 'GPT5.5分析师v3' },
       { path: '/modules', label: '模块' },
     ],
     training,
@@ -2620,6 +2872,9 @@ const server = http.createServer((req, res) => {
       }
       if (u.pathname === '/predictions' || u.pathname === '/predictions.html') {
         return sendHtmlFile(res, 'xv1-predictions.html', (html) => injectXv1Data(html, getXv1Summary()));
+      }
+      if (u.pathname === '/gpt55-analyst-v3' || u.pathname === '/gpt55-analyst-v3.html') {
+        return sendHtmlFile(res, 'xv1-gpt55-analyst-v3.html', (html) => injectXv1Data(html, getXv1Summary()));
       }
       if (u.pathname === '/gpt55-analyst-v2' || u.pathname === '/gpt55-analyst-v2.html') {
         return sendHtmlFile(res, 'xv1-gpt55-analyst-v2.html', (html) => injectXv1Data(html, getXv1Summary()));
