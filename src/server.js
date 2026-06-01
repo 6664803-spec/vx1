@@ -90,6 +90,28 @@ CREATE TABLE IF NOT EXISTS timeseq_predictions (
   evaluated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS gpt55_bypass_predictions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  version TEXT NOT NULL,
+  target_roundno TEXT NOT NULL,
+  based_on_roundno TEXT,
+  generated_at TEXT NOT NULL,
+  source_model_version TEXT,
+  top3_json TEXT NOT NULL,
+  compare_json TEXT NOT NULL,
+  actual_json TEXT,
+  top1_hits INTEGER,
+  top3_hits INTEGER,
+  possible INTEGER,
+  top1_rate REAL,
+  top3_rate REAL,
+  evaluated_at TEXT,
+  UNIQUE(version, target_roundno)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gpt55_bypass_version_target ON gpt55_bypass_predictions(version, target_roundno DESC);
+CREATE INDEX IF NOT EXISTS idx_gpt55_bypass_eval ON gpt55_bypass_predictions(version, evaluated_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_draws_roundno ON draws(roundno DESC);
 CREATE INDEX IF NOT EXISTS idx_predictions_target ON predictions(target_roundno);
 CREATE INDEX IF NOT EXISTS idx_predictions_eval ON predictions(evaluated_at DESC);
@@ -1531,6 +1553,104 @@ function getGpt55V3WeightSummary() {
   });
 }
 
+function materializeGpt55BypassTable(version = 'v2', limit = 60) {
+  const normalizedVersion = version === 'v3' ? 'v3' : 'v2';
+  const rows = normalizedVersion === 'v3' ? getGpt55BypassV3History(limit) : getGpt55BypassHistory(limit);
+  const now = nowIso();
+  const stmt = db.prepare(`
+    INSERT INTO gpt55_bypass_predictions (
+      version, target_roundno, based_on_roundno, generated_at, source_model_version,
+      top3_json, compare_json, actual_json, top1_hits, top3_hits, possible,
+      top1_rate, top3_rate, evaluated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(version, target_roundno) DO UPDATE SET
+      based_on_roundno = excluded.based_on_roundno,
+      generated_at = excluded.generated_at,
+      source_model_version = excluded.source_model_version,
+      top3_json = excluded.top3_json,
+      compare_json = excluded.compare_json,
+      actual_json = excluded.actual_json,
+      top1_hits = excluded.top1_hits,
+      top3_hits = excluded.top3_hits,
+      possible = excluded.possible,
+      top1_rate = excluded.top1_rate,
+      top3_rate = excluded.top3_rate,
+      evaluated_at = excluded.evaluated_at
+  `);
+  let written = 0;
+  for (const row of rows) {
+    const possible = Number(row.possible || 0) || 10;
+    const top1Hits = Number(row.top1Hits || 0);
+    const top3Hits = Number(row.top3Hits || 0);
+    stmt.run(
+      normalizedVersion,
+      String(row.target_roundno || ''),
+      row.based_on_roundno ? String(row.based_on_roundno) : null,
+      now,
+      normalizedVersion === 'v3' ? 'gpt55-bypass-v3-adaptive' : 'gpt55-bypass-v2-consensus',
+      JSON.stringify(row.top3 || []),
+      JSON.stringify(row.compare || []),
+      JSON.stringify(row.actual || []),
+      top1Hits,
+      top3Hits,
+      possible,
+      possible ? (top1Hits / possible) * 100 : 0,
+      possible ? (top3Hits / possible) * 100 : 0,
+      row.evaluated_at || null,
+    );
+    written += 1;
+  }
+  return { version: normalizedVersion, written, generatedAt: now };
+}
+
+function readGpt55BypassTable(version = 'v2', limit = 30) {
+  const normalizedVersion = version === 'v3' ? 'v3' : 'v2';
+  const rows = db.prepare(`
+    SELECT * FROM gpt55_bypass_predictions
+    WHERE version = ?
+    ORDER BY COALESCE(evaluated_at, generated_at) DESC, target_roundno DESC
+    LIMIT ?
+  `).all(normalizedVersion, Math.max(1, Math.min(500, Number(limit) || 30))).map((row) => ({
+    ...row,
+    top3: parseJsonSafe(row.top3_json, []),
+    compare: parseJsonSafe(row.compare_json, []),
+    actual: parseJsonSafe(row.actual_json, []),
+  }));
+  const totals = rows.reduce((acc, row) => {
+    acc.samples += row.evaluated_at ? 1 : 0;
+    acc.possible += Number(row.possible || 0);
+    acc.top1Hits += Number(row.top1_hits || 0);
+    acc.top3Hits += Number(row.top3_hits || 0);
+    return acc;
+  }, { samples: 0, possible: 0, top1Hits: 0, top3Hits: 0 });
+  const rate = (hits, total) => total ? Number(((hits / total) * 100).toFixed(2)) : 0;
+  return {
+    version: normalizedVersion,
+    rows,
+    metrics: {
+      ...totals,
+      top1Rate: rate(totals.top1Hits, totals.possible),
+      top3Rate: rate(totals.top3Hits, totals.possible),
+    },
+  };
+}
+
+function getGpt55BypassTableModule(limit = 30) {
+  const v2Write = materializeGpt55BypassTable('v2', Math.max(60, limit));
+  const v3Write = materializeGpt55BypassTable('v3', Math.max(60, limit));
+  const v2 = readGpt55BypassTable('v2', limit);
+  const v3 = readGpt55BypassTable('v3', limit);
+  return {
+    enabled: true,
+    table: 'gpt55_bypass_predictions',
+    mode: 'materialized-shadow',
+    description: '旁路 v2/v3 结果已写入独立表，页面从表读取，不再只是请求时即时计算。',
+    lastWrite: { v2: v2Write, v3: v3Write },
+    v2,
+    v3,
+  };
+}
+
 function getBypassMetricsFromCompare(rows) {
   let samples = 0;
   let possible = 0;
@@ -1965,6 +2085,7 @@ function getXv1Summary() {
   const gpt55V3History = getGpt55BypassV3History(30);
   const gpt55V3Metrics = getBypassMetricsFromCompare(gpt55V3History);
   const gpt55V3Weights = getGpt55V3WeightSummary();
+  const gpt55TableModule = getGpt55BypassTableModule(30);
   const modelRanking = timeseqModelRanking(300);
 
   return {
@@ -2045,6 +2166,7 @@ function getXv1Summary() {
         metrics: gpt55V3Metrics,
         weights: gpt55V3Weights,
       },
+      bypassTable: gpt55TableModule,
     },
     fusion: {
       top3: xv1Next?.top3 || xv1Current?.top3 || [],
@@ -2065,6 +2187,7 @@ function getXv1Summary() {
       { path: '/predictions', label: '预测' },
       { path: '/gpt55-bypass', label: 'GPT5.5旁路' },
       { path: '/gpt55-bypass-v3', label: 'GPT5.5旁路v3' },
+      { path: '/bypass-table', label: '旁路独立表' },
       { path: '/modules', label: '模块' },
     ],
     training,
@@ -2194,6 +2317,9 @@ const server = http.createServer((req, res) => {
       }
       if (u.pathname === '/predictions' || u.pathname === '/predictions.html') {
         return sendHtmlFile(res, 'xv1-predictions.html', (html) => injectXv1Data(html, getXv1Summary()));
+      }
+      if (u.pathname === '/bypass-table' || u.pathname === '/bypass-table.html') {
+        return sendHtmlFile(res, 'xv1-bypass-table.html', (html) => injectXv1Data(html, getXv1Summary()));
       }
       if (u.pathname === '/gpt55-bypass-v3' || u.pathname === '/gpt55-bypass-v3.html') {
         return sendHtmlFile(res, 'xv1-gpt55-bypass-v3.html', (html) => injectXv1Data(html, getXv1Summary()));

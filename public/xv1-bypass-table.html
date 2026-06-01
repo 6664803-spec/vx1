@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <title>xv1 旁路独立表</title>
+  <style>
+    :root { --bg:#07111f; --card:#101a31; --text:#eef2ff; --muted:#9aa6c3; --good:#4ade80; --warn:#fbbf24; --bad:#f87171; }
+    *{box-sizing:border-box} body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(180deg,#050816,#07111f 30%,#04060f);color:var(--text)}
+    header{padding:20px 24px 12px;position:sticky;top:0;z-index:5;background:rgba(5,8,22,.9);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,255,255,.08)} h1{margin:0 0 8px;font-size:22px} h2{margin:0 0 10px;font-size:17px} h3{margin:0 0 8px;font-size:14px}.sub,.small{color:var(--muted);font-size:13px;line-height:1.6}.nav{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.nav a{color:#dbe5ff;text-decoration:none;padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08)}.nav a.primary{background:rgba(74,222,128,.14);border-color:rgba(74,222,128,.28);color:#bbf7d0}main{max-width:1380px;margin:0 auto;padding:18px}.grid{display:grid;gap:14px}.four{grid-template-columns:repeat(4,minmax(0,1fr))}.two{grid-template-columns:repeat(2,minmax(0,1fr))}.card{background:linear-gradient(180deg,rgba(18,26,51,.96),rgba(10,16,31,.96));border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px;box-shadow:0 12px 50px rgba(0,0,0,.22)}.label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}.value{margin-top:8px;font-size:25px;font-weight:800;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.line{display:flex;justify-content:space-between;gap:10px;margin:8px 0;font-size:13px}.pill{display:inline-flex;padding:4px 9px;border-radius:999px;background:rgba(255,255,255,.06);color:#dbe5ff;margin:0 6px 6px 0;font-size:12px}.pill.good{background:rgba(74,222,128,.12);color:#bbf7d0}.pill.warn{background:rgba(251,191,36,.12);color:#fde68a}.table-wrap{overflow:auto}.history-table{width:100%;border-collapse:collapse;min-width:980px}.history-table th,.history-table td{padding:10px 8px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top;font-size:13px}.history-table th{color:var(--muted);font-weight:600}.actual,.candidate{display:inline-flex;padding:2px 5px;border-radius:6px;margin:1px 2px 1px 0}.actual{background:rgba(74,222,128,.16);color:#bbf7d0}.candidate{background:rgba(255,255,255,.07);color:#dbe5ff}.candidate.hit{background:rgba(74,222,128,.18);color:#bbf7d0}.hit-text{color:#bbf7d0;font-weight:700}.miss-text{color:#fecaca}@media(max-width:1000px){.four,.two{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header>
+  <h1>xv1 旁路独立表</h1>
+  <div class="sub"><span>gpt55_bypass_predictions：v2/v3 旁路结果落表后读取展示。</span><span id="refresh-status">已加载</span></div>
+  <div class="nav"><a href="/">新首页</a><a href="/overview">总览</a><a href="/predictions">预测</a><a href="/gpt55-bypass">v2</a><a href="/gpt55-bypass-v3">v3</a><a href="/bypass-table" class="primary">旁路独立表</a><a href="/modules">模块</a></div>
+</header>
+<main>
+  <div class="grid four" id="metric-grid"></div>
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card"><h2>独立表状态</h2><div id="table-state"></div></div>
+    <div class="card"><h2>v2 / v3 落表对比</h2><div id="compare-state"></div></div>
+  </div>
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card"><h2>v2 表数据近 30 期</h2><div class="table-wrap"><table class="history-table"><thead><tr><th>期号</th><th>实际</th><th>Top1</th><th>Top3</th><th>评估</th></tr></thead><tbody id="v2-body"></tbody></table></div></div>
+    <div class="card"><h2>v3 表数据近 30 期</h2><div class="table-wrap"><table class="history-table"><thead><tr><th>期号</th><th>实际</th><th>Top1</th><th>Top3</th><th>评估</th></tr></thead><tbody id="v3-body"></tbody></table></div></div>
+  </div>
+  <div class="card" style="margin-top:14px;"><h2>逐位置明细（v3 表数据）</h2><div class="table-wrap"><table class="history-table"><thead><tr><th>期号</th><th>逐位置比对</th></tr></thead><tbody id="detail-body"></tbody></table></div></div>
+</main>
+<script>
+(function(){
+  const data=window.__XV1_SUMMARY__||{}; const table=data.predictions?.bypassTable||{}; const v2=table.v2||{}; const v3=table.v3||{};
+  const esc=(v)=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); const el=(id)=>document.getElementById(id);
+  const card=(k,v,d,cls='')=>`<div class="card"><div class="label">${esc(k)}</div><div class="value ${cls}">${esc(v)}</div><div class="small">${esc(d)}</div></div>`;
+  el('metric-grid').innerHTML=[card('表名',table.table||'gpt55_bypass_predictions',table.mode||'materialized-shadow'),card('v2 Top1',`${v2.metrics?.top1Rate??0}%`,`${v2.metrics?.top1Hits??0}/${v2.metrics?.possible??0}`),card('v3 Top1',`${v3.metrics?.top1Rate??0}%`,`${v3.metrics?.top1Hits??0}/${v3.metrics?.possible??0}`),card('v3 Top3',`${v3.metrics?.top3Rate??0}%`,`${v3.metrics?.top3Hits??0}/${v3.metrics?.possible??0}`)].join('');
+  el('table-state').innerHTML=[['状态',table.enabled?'ON':'OFF'],['模式',table.mode||'-'],['说明',table.description||'-'],['v2写入',table.lastWrite?.v2?.written??0],['v3写入',table.lastWrite?.v3?.written??0]].map(([k,v])=>`<div class="line"><span><b>${esc(k)}</b></span><span class="mono">${esc(v)}</span></div>`).join('')+'<div style="margin-top:10px"><span class="pill good">已落表</span><span class="pill warn">shadow-only</span><span class="pill">独立读取</span></div>';
+  const d1=Number((Number(v3.metrics?.top1Rate||0)-Number(v2.metrics?.top1Rate||0)).toFixed(2)); const d3=Number((Number(v3.metrics?.top3Rate||0)-Number(v2.metrics?.top3Rate||0)).toFixed(2));
+  el('compare-state').innerHTML=[['v2 样本',v2.metrics?.samples??0],['v3 样本',v3.metrics?.samples??0],['v3-v2 Top1',`${d1>=0?'+':''}${d1}%`],['v3-v2 Top3',`${d3>=0?'+':''}${d3}%`]].map(([k,v])=>`<div class="line"><span><b>${esc(k)}</b></span><span class="mono">${esc(v)}</span></div>`).join('');
+  const actual=(arr)=>(arr||[]).map(n=>`<span class="actual">${esc(String(n).padStart(2,'0'))}</span>`).join('');
+  const rowHtml=(rows)=>(rows||[]).map(r=>`<tr><td class="mono">${esc(r.target_roundno)}</td><td>${actual(r.actual)||'-'}</td><td class="mono ${Number(r.top1_hits||0)?'hit-text':'miss-text'}">${esc(r.top1_hits??0)}/${esc(r.possible??10)}</td><td class="mono ${Number(r.top3_hits||0)?'hit-text':'miss-text'}">${esc(r.top3_hits??0)}/${esc(r.possible??10)}</td><td class="mono">${esc(r.evaluated_at||'-')}</td></tr>`).join('')||'<tr><td colspan="5" class="small">暂无表数据</td></tr>';
+  el('v2-body').innerHTML=rowHtml(v2.rows); el('v3-body').innerHTML=rowHtml(v3.rows);
+  el('detail-body').innerHTML=(v3.rows||[]).slice(0,10).map(r=>{const detail=(r.compare||[]).map((c,idx)=>{const a=String(c.actual??'').padStart(2,'0'); const nums=(c.top3||[]).map(n=>String(n).padStart(2,'0')); return `<div style="margin-bottom:4px"><b>${esc(c.label||`第${idx+1}名`)}</b> <span class="${c.top3Hit?'hit-text':'miss-text'}">${esc(a||'-')}</span> → ${nums.map(n=>`<span class="candidate ${n===a?'hit':''}">${esc(n)}</span>`).join('')} <span class="small">${c.top1Hit?'Top1':(c.top3Hit?'Top3':'未中')}</span></div>`;}).join(''); return `<tr><td class="mono">${esc(r.target_roundno)}</td><td>${detail||'-'}</td></tr>`;}).join('')||'<tr><td colspan="2" class="small">暂无明细</td></tr>';
+  el('refresh-status').textContent='已刷新 '+new Date().toLocaleTimeString('zh-CN',{hour12:false});
+})();
+</script>
+</body>
+</html>

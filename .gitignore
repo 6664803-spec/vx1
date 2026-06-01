@@ -1,14 +1,8 @@
-node_modules/
 .openclaw/
 .ssh/
 backups/
-memory/
-tmp/
-exports/
+data/
+node_modules/
 *.log
-*.bak.*
-*.sql.zip
-*.db
-*.db-shm
-*.db-wal
 .DS_Store
+memory/.dreams/
