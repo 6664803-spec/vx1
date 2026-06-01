@@ -1881,10 +1881,13 @@ function readAnalystV3(limit = 30) {
   const latestSource = timeseqPredictionHistory(1)[0]?.target_roundno || null;
   const latestStored = db.prepare('SELECT target_roundno FROM gpt55_analyst_v3_predictions ORDER BY target_roundno DESC LIMIT 1').get()?.target_roundno || null;
   const existing = db.prepare('SELECT COUNT(*) AS c FROM gpt55_analyst_v3_predictions').get()?.c || 0;
-  const needsRefresh = !latestSource || !latestStored || String(latestStored) < String(latestSource) || existing < Math.max(1, Number(limit) || 30);
-  const write = needsRefresh
+  const sourceAdvanced = latestSource && latestStored && String(latestStored) < String(latestSource);
+  const needsInitialFill = !latestStored || existing < Math.max(1, Number(limit) || 30);
+  const write = needsInitialFill
     ? materializeAnalystV3(Math.max(60, limit))
-    : { written: 0, generatedAt: nowIso(), cached: true, latestStored, latestSource };
+    : (sourceAdvanced
+      ? materializeAnalystV3(8)
+      : { written: 0, generatedAt: nowIso(), cached: true, latestStored, latestSource });
   const rows = db.prepare('SELECT * FROM gpt55_analyst_v3_predictions ORDER BY COALESCE(evaluated_at, generated_at) DESC, target_roundno DESC LIMIT ?').all(limit).map((row) => ({ ...row, matrix: parseJsonSafe(row.matrix_json, []), stats: parseJsonSafe(row.stats_json, []), overlap: parseJsonSafe(row.overlap_json, []), top3: parseJsonSafe(row.top3_json, []), reasons: parseJsonSafe(row.reason_json, []), errors: parseJsonSafe(row.error_json, []), actual: parseJsonSafe(row.actual_json, []), compare: parseJsonSafe(row.compare_json, []) }));
   const totals = rows.reduce((acc, row) => { acc.samples += row.evaluated_at ? 1 : 0; acc.possible += Number(row.possible || 0); acc.top1Hits += Number(row.top1_hits || 0); acc.top3Hits += Number(row.top3_hits || 0); return acc; }, { samples: 0, possible: 0, top1Hits: 0, top3Hits: 0 });
   const rate = (hits, total) => total ? Number(((hits / total) * 100).toFixed(2)) : 0;
@@ -2568,7 +2571,8 @@ function getXv1MetricsFromRows(rows) {
   };
 }
 
-function getXv1Summary() {
+function getXv1Summary(options = {}) {
+  const include = options.include || 'basic';
   const training = (() => {
     const xv1 = summarizeXv1SequenceArtifact(xv1SequenceArtifact);
     if (xv1) {
@@ -2629,15 +2633,20 @@ function getXv1Summary() {
   const xv1History = timeseqPredictionHistory(300);
   const xv1HistoryCompare = getXv1HistoryCompare(30);
   const xv1MetricStats = getXv1MetricsFromRows(xv1History);
-  const gpt55History = getGpt55BypassHistory(30);
-  const gpt55Metrics = getBypassMetricsFromCompare(gpt55History);
-  const gpt55V3History = getGpt55BypassV3History(30);
-  const gpt55V3Metrics = getBypassMetricsFromCompare(gpt55V3History);
-  const gpt55V3Weights = getGpt55V3WeightSummary();
-  const gpt55TableModule = getGpt55BypassTableModule(30);
-  const gpt55Analyst = readGpt55Analyst(30);
-  const gpt55AnalystV2 = readGpt55AnalystV2(30);
-  const gpt55AnalystV3 = readAnalystV3(30);
+  const needsBypass = include === 'all' || include === 'bypass' || include === 'bypassTable';
+  const needsBypassTable = include === 'all' || include === 'bypassTable';
+  const needsAnalyst = include === 'all' || include === 'analyst';
+  const needsAnalystV2 = include === 'all' || include === 'analystV2';
+  const needsAnalystV3 = include === 'all' || include === 'analystV3';
+  const gpt55History = needsBypass ? getGpt55BypassHistory(30) : [];
+  const gpt55Metrics = needsBypass ? getBypassMetricsFromCompare(gpt55History) : null;
+  const gpt55V3History = needsBypass ? getGpt55BypassV3History(30) : [];
+  const gpt55V3Metrics = needsBypass ? getBypassMetricsFromCompare(gpt55V3History) : null;
+  const gpt55V3Weights = needsBypass ? getGpt55V3WeightSummary() : [];
+  const gpt55TableModule = needsBypassTable ? getGpt55BypassTableModule(30) : null;
+  const gpt55Analyst = needsAnalyst ? readGpt55Analyst(30) : null;
+  const gpt55AnalystV2 = needsAnalystV2 ? readGpt55AnalystV2(30) : null;
+  const gpt55AnalystV3 = needsAnalystV3 ? readAnalystV3(30) : null;
   const modelRanking = timeseqModelRanking(300);
 
   return {
@@ -2695,33 +2704,35 @@ function getXv1Summary() {
       rawHistory: xv1History.slice(0, 30),
       metrics: xv1MetricStats,
       modelRanking,
-      bypass: {
-        enabled: true,
-        name: 'GPT5.5 旁路评估 v2',
-        mode: 'shadow-only',
-        model: 'oc2/gpt-5.5',
-        description: '读取主模型和分层模型候选，做第二路再排序；只展示和回测，不覆盖正式输出。',
-        next: latestDraw ? { top3: buildGpt55BypassRows(xv1Next?.top3 || [], xv1Next?.models || null, xv1MetricStats.positionRates) } : null,
-        current: latestDraw ? { top3: buildGpt55BypassRows(xv1Current?.top3 || [], xv1Current?.models || null, xv1MetricStats.positionRates) } : null,
-        history: gpt55History,
-        metrics: gpt55Metrics,
-      },
-      bypassV3: {
-        enabled: true,
-        name: 'GPT5.5 旁路评估 v3',
-        mode: 'shadow-only-adaptive',
-        model: 'oc2/gpt-5.5',
-        description: '在 v2 共识复审上加入位置独立权重、近期动态表现、热冷修正；只展示和回测，不覆盖正式输出。',
-        next: latestDraw ? { top3: buildGpt55BypassV3Rows(xv1Next?.top3 || [], xv1Next?.models || null, xv1MetricStats.positionRates) } : null,
-        current: latestDraw ? { top3: buildGpt55BypassV3Rows(xv1Current?.top3 || [], xv1Current?.models || null, xv1MetricStats.positionRates) } : null,
-        history: gpt55V3History,
-        metrics: gpt55V3Metrics,
-        weights: gpt55V3Weights,
-      },
-      bypassTable: gpt55TableModule,
-      analyst: gpt55Analyst,
-      analystV2: gpt55AnalystV2,
-      analystV3: gpt55AnalystV3,
+      ...(needsBypass ? {
+        bypass: {
+          enabled: true,
+          name: 'GPT5.5 旁路评估 v2',
+          mode: 'shadow-only',
+          model: 'oc2/gpt-5.5',
+          description: '读取主模型和分层模型候选，做第二路再排序；只展示和回测，不覆盖正式输出。',
+          next: latestDraw ? { top3: buildGpt55BypassRows(xv1Next?.top3 || [], xv1Next?.models || null, xv1MetricStats.positionRates) } : null,
+          current: latestDraw ? { top3: buildGpt55BypassRows(xv1Current?.top3 || [], xv1Current?.models || null, xv1MetricStats.positionRates) } : null,
+          history: gpt55History,
+          metrics: gpt55Metrics,
+        },
+        bypassV3: {
+          enabled: true,
+          name: 'GPT5.5 旁路评估 v3',
+          mode: 'shadow-only-adaptive',
+          model: 'oc2/gpt-5.5',
+          description: '在 v2 共识复审上加入位置独立权重、近期动态表现、热冷修正；只展示和回测，不覆盖正式输出。',
+          next: latestDraw ? { top3: buildGpt55BypassV3Rows(xv1Next?.top3 || [], xv1Next?.models || null, xv1MetricStats.positionRates) } : null,
+          current: latestDraw ? { top3: buildGpt55BypassV3Rows(xv1Current?.top3 || [], xv1Current?.models || null, xv1MetricStats.positionRates) } : null,
+          history: gpt55V3History,
+          metrics: gpt55V3Metrics,
+          weights: gpt55V3Weights,
+        },
+      } : {}),
+      ...(needsBypassTable ? { bypassTable: gpt55TableModule } : {}),
+      ...(needsAnalyst ? { analyst: gpt55Analyst } : {}),
+      ...(needsAnalystV2 ? { analystV2: gpt55AnalystV2 } : {}),
+      ...(needsAnalystV3 ? { analystV3: gpt55AnalystV3 } : {}),
     },
     fusion: {
       top3: xv1Next?.top3 || xv1Current?.top3 || [],
@@ -2784,8 +2795,36 @@ function injectInitialData(html, data) {
   return html.replace('</body>', bootstrapScript + '</body>');
 }
 
-function injectXv1Data(html, data) {
-  const payload = JSON.stringify(data).replace(/</g, '\u003c');
+function slimXv1SummaryForPage(data, fileName = '') {
+  const clone = JSON.parse(JSON.stringify(data || {}));
+  const pred = clone.predictions || {};
+  const page = String(fileName || '');
+  const keepPredictions = page.includes('predictions');
+  const keepBypassTable = page.includes('bypass-table');
+  const keepBypass = page.includes('gpt55-bypass');
+  const keepAnalystV1 = page.includes('gpt55-analyst.html');
+  const keepAnalystV2 = page.includes('gpt55-analyst-v2');
+  const keepAnalystV3 = page.includes('gpt55-analyst-v3');
+  if (!keepPredictions) {
+    delete pred.rawHistory;
+    if (Array.isArray(pred.history)) pred.history = pred.history.slice(0, 10);
+  }
+  if (!keepBypassTable) delete pred.bypassTable;
+  if (!keepBypass) { delete pred.bypass; delete pred.bypassV3; }
+  if (!keepAnalystV1) delete pred.analyst;
+  if (!keepAnalystV2) delete pred.analystV2;
+  if (!keepAnalystV3) delete pred.analystV3;
+  if (pred.analystV3) {
+    pred.analystV3.rows = (pred.analystV3.rows || []).slice(0, 30).map((r) => ({ target_roundno: r.target_roundno, actual: r.actual, compare: r.compare, top1_hits: r.top1_hits, top3_hits: r.top3_hits, possible: r.possible, errors: r.errors, evaluated_at: r.evaluated_at }));
+    if (pred.analystV3.latest) pred.analystV3.latest = { target_roundno: pred.analystV3.latest.target_roundno, top3: pred.analystV3.latest.top3, overlap: pred.analystV3.latest.overlap };
+    pred.analystV3.modelPositionStats = (pred.analystV3.modelPositionStats || []).slice(0, 120);
+  }
+  clone.predictions = pred;
+  return clone;
+}
+
+function injectXv1Data(html, data, fileName = '') {
+  const payload = JSON.stringify(slimXv1SummaryForPage(data, fileName)).replace(/</g, '\u003c');
   const bootstrapScript = '<script>window.__XV1_SUMMARY__ = ' + payload + ';</script>';
   if (html.includes('<body>')) {
     return html.replace('<body>', '<body>' + bootstrapScript);
@@ -2865,37 +2904,37 @@ const server = http.createServer((req, res) => {
 
     if (xv1Host) {
       if (u.pathname === '/' || u.pathname === '/index.html') {
-        return sendHtmlFile(res, 'xv1-index.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-index.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'basic' }), 'xv1-index.html'));
       }
       if (u.pathname === '/overview' || u.pathname === '/overview.html') {
-        return sendHtmlFile(res, 'xv1-overview.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-overview.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'basic' }), 'xv1-overview.html'));
       }
       if (u.pathname === '/monitor' || u.pathname === '/monitor.html') {
-        return sendHtmlFile(res, 'xv1-monitor.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-monitor.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'basic' }), 'xv1-monitor.html'));
       }
       if (u.pathname === '/predictions' || u.pathname === '/predictions.html') {
-        return sendHtmlFile(res, 'xv1-predictions.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-predictions.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'basic' }), 'xv1-predictions.html'));
       }
       if (u.pathname === '/gpt55-analyst-v3' || u.pathname === '/gpt55-analyst-v3.html') {
-        return sendHtmlFile(res, 'xv1-gpt55-analyst-v3.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-gpt55-analyst-v3.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'analystV3' }), 'xv1-gpt55-analyst-v3.html'));
       }
       if (u.pathname === '/gpt55-analyst-v2' || u.pathname === '/gpt55-analyst-v2.html') {
-        return sendHtmlFile(res, 'xv1-gpt55-analyst-v2.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-gpt55-analyst-v2.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'analystV2' }), 'xv1-gpt55-analyst-v2.html'));
       }
       if (u.pathname === '/gpt55-analyst' || u.pathname === '/gpt55-analyst.html') {
-        return sendHtmlFile(res, 'xv1-gpt55-analyst.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-gpt55-analyst.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'analyst' }), 'xv1-gpt55-analyst.html'));
       }
       if (u.pathname === '/bypass-table' || u.pathname === '/bypass-table.html') {
-        return sendHtmlFile(res, 'xv1-bypass-table.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-bypass-table.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'bypassTable' }), 'xv1-bypass-table.html'));
       }
       if (u.pathname === '/gpt55-bypass-v3' || u.pathname === '/gpt55-bypass-v3.html') {
-        return sendHtmlFile(res, 'xv1-gpt55-bypass-v3.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-gpt55-bypass-v3.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'bypass' }), 'xv1-gpt55-bypass-v3.html'));
       }
       if (u.pathname === '/gpt55-bypass' || u.pathname === '/gpt55-bypass.html') {
-        return sendHtmlFile(res, 'xv1-gpt55-bypass.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-gpt55-bypass.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'bypass' }), 'xv1-gpt55-bypass.html'));
       }
       if (u.pathname === '/modules' || u.pathname === '/modules.html') {
-        return sendHtmlFile(res, 'xv1-modules.html', (html) => injectXv1Data(html, getXv1Summary()));
+        return sendHtmlFile(res, 'xv1-modules.html', (html) => injectXv1Data(html, getXv1Summary({ include: 'basic' }), 'xv1-modules.html'));
       }
       if (u.pathname === '/observer' || u.pathname === '/timeseq' || u.pathname === '/timeseq-lab' || u.pathname === '/timeseq-deep') {
         return sendRemovedRoute(res, 'xv1');
@@ -2904,14 +2943,14 @@ const server = http.createServer((req, res) => {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
-        res.end(JSON.stringify(getXv1Summary()));
+        res.end(JSON.stringify(getXv1Summary({ include: 'all' })));
         return;
       }
       if (u.pathname === '/api/pages') {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
         res.setHeader('Cache-Control', 'no-store');
-        res.end(JSON.stringify({ pages: getXv1Summary().pages, layers: getXv1Summary().layers }));
+        res.end(JSON.stringify({ pages: getXv1Summary({ include: 'basic' }).pages, layers: getXv1Summary({ include: 'basic' }).layers }));
         return;
       }
       if (u.pathname === '/health') {
