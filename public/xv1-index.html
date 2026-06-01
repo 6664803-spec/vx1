@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>xv1 重建中</title>
+  <style>
+    :root { --bg:#07111f; --card:#101a31; --text:#eef2ff; --muted:#9aa6c3; --good:#4ade80; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:linear-gradient(180deg, #050816, #07111f 30%, #04060f); color:var(--text); }
+    header { padding:20px 24px 12px; position:sticky; top:0; z-index:5; background:rgba(5,8,22,.88); backdrop-filter: blur(10px); border-bottom:1px solid rgba(255,255,255,.08); }
+    h1 { margin:0 0 8px; font-size:22px; }
+    .sub { color:var(--muted); font-size:13px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .nav { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .nav a { color:#dbe5ff; text-decoration:none; padding:7px 12px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); }
+    .nav a.primary { background:rgba(74,222,128,.14); border-color:rgba(74,222,128,.28); color:#bbf7d0; }
+    main { max-width:1200px; margin:0 auto; padding:18px; }
+    .card { background:linear-gradient(180deg, rgba(18,26,51,.96), rgba(10,16,31,.96)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:18px; box-shadow:0 12px 50px rgba(0,0,0,.22); }
+    .hero { display:grid; gap:12px; }
+    .badge { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:999px; background:rgba(74,222,128,.12); color:#bbf7d0; width:max-content; }
+    .title { font-size:32px; font-weight:800; margin:0; }
+    .muted { color:var(--muted); line-height:1.7; }
+    .grid { display:grid; gap:14px; grid-template-columns:repeat(3, minmax(0,1fr)); margin-top:14px; }
+    .box { padding:14px; border-radius:14px; background:rgba(255,255,255,.04); }
+    .box h3 { margin:0 0 8px; font-size:15px; }
+    .small { color:var(--muted); font-size:13px; line-height:1.6; }
+    .stack { display:grid; gap:12px; }
+    .pill { display:inline-flex; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,.06); color:#dbe5ff; margin:0 6px 6px 0; }
+    .pill.good { background:rgba(74,222,128,.12); color:#bbf7d0; }
+    .pill.warn { background:rgba(251,191,36,.12); color:#fde68a; }
+    @media (max-width: 900px) { .grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>xv1 重建中</h1>
+  <div class="sub">
+    <span>这是 xv1.7700.eu.org 的独立入口，不再混用旧站模块</span>
+    <span id="refresh-status">已加载</span>
+  </div>
+  <div class="nav">
+    <a href="/" class="primary">新首页</a>
+    <a href="/overview">总览</a>
+    <a href="/monitor">监控</a>
+    <a href="/predictions">预测</a>
+    <a href="/gpt55-bypass">GPT5.5旁路v2</a>
+    <a href="/gpt55-bypass-v3">GPT5.5旁路v3</a>
+    <a href="/modules">模块</a>
+  </div>
+</header>
+<main>
+  <div class="card hero">
+    <div class="badge">独立重建 · 旧模块已剥离</div>
+    <h2 class="title">xv1 按新规则重做</h2>
+    <div class="muted">页面现在会围绕“按位置拆分 / 规则评分 / 时间衰减 / 滚动回测 / 分层展示”来组织，不再沿用旧站的混合逻辑。</div>
+  </div>
+
+  <div class="grid">
+    <div class="box">
+      <h3>核心设计</h3>
+      <div class="small">- 每个位置独立 Top3<br>- 规则模型起步<br>- 再接统计与序列模型</div>
+    </div>
+    <div class="box">
+      <h3>验证口径</h3>
+      <div class="small">- 用 API 最新开奖号验证<br>- 训练只看历史<br>- walk-forward 滚动回测</div>
+    </div>
+    <div class="box">
+      <h3>输出指标</h3>
+      <div class="small">- Top1 / Top3 命中率<br>- 分位置命中率<br>- 连续多期稳定性</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px;">页面边界</h3>
+    <div class="stack">
+      <div class="pill good">xv1 独立站</div>
+      <div class="pill">旧站不混用</div>
+      <div class="pill warn">新模型蓝图接入中</div>
+    </div>
+  </div>
+</main>
+</body>
+</html>

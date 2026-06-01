@@ -1,0 +1,14 @@
+{
+  "createdAt": "2026-05-31T21:35:24.315Z",
+  "source": {
+    "yun_lottery_draws": 7376,
+    "timeseq_predictions": 1620,
+    "json_draws": 7376
+  },
+  "totalRecords": 8996,
+  "schema": "jsonl",
+  "note": "Merged training corpus for xv1: raw draws + timeseq predictions; preserve source tags.",
+  "files": {
+    "jsonl": "xv1_timeseq_training_merged.jsonl"
+  }
+}

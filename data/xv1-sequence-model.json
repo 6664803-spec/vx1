@@ -1,0 +1,47 @@
+{
+  "name": "xv1-timeseq-only-v1",
+  "version": "timeseq_predictions-only-1620",
+  "createdAt": "2026-05-31T21:40:33.367Z",
+  "source": "timeseq_predictions",
+  "sourceText": "只使用 timeseq_predictions 1620 条进行训练",
+  "sourceRows": 1620,
+  "trainingTotals": {
+    "timeseq_predictions": 1620,
+    "total": 1620
+  },
+  "sourceBreakdown": {
+    "timeseq_predictions": 1620
+  },
+  "rounds": {
+    "min": "20260522178",
+    "max": "20260601001"
+  },
+  "isolation": true,
+  "note": "xv1 dedicated model summary; source is timeseq_predictions only.",
+  "sample": [
+    {
+      "target_roundno": "20260531177",
+      "based_on_roundno": "20260531176",
+      "generated_at": "2026-05-31T19:44:11.354Z",
+      "model_name": "时序预测模型训练",
+      "model_version": "timeseq-multi-model",
+      "accuracy_rate": 41.17647058823529
+    },
+    {
+      "target_roundno": "20260531180",
+      "based_on_roundno": "20260531179",
+      "generated_at": "2026-05-31T20:25:30.962Z",
+      "model_name": "时序预测模型训练",
+      "model_version": "timeseq-multi-model",
+      "accuracy_rate": 41.17647058823529
+    },
+    {
+      "target_roundno": "20260601001",
+      "based_on_roundno": "20260531180",
+      "generated_at": "2026-05-31T20:25:30.989Z",
+      "model_name": "时序预测模型训练",
+      "model_version": "timeseq-multi-model",
+      "accuracy_rate": null
+    }
+  ]
+}

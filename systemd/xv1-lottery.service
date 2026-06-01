@@ -1,0 +1,18 @@
+[Unit]
+Description=XV1 Lottery Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/.openclaw/workspace
+ExecStart=/usr/bin/node /root/.openclaw/workspace/src/server.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3001
+StandardOutput=append:/var/log/xv1-lottery/service.log
+StandardError=append:/var/log/xv1-lottery/service.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>xv1 预测</title>
+  <style>
+    :root { --bg:#07111f; --card:#101a31; --text:#eef2ff; --muted:#9aa6c3; --good:#4ade80; --warn:#fbbf24; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:linear-gradient(180deg, #050816, #07111f 30%, #04060f); color:var(--text); }
+    header { padding:20px 24px 12px; position:sticky; top:0; z-index:5; background:rgba(5,8,22,.88); backdrop-filter: blur(10px); border-bottom:1px solid rgba(255,255,255,.08); }
+    h1 { margin:0 0 8px; font-size:22px; }
+    .sub { color:var(--muted); font-size:13px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .nav { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .nav a { color:#dbe5ff; text-decoration:none; padding:7px 12px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); }
+    .nav a.primary { background:rgba(74,222,128,.14); border-color:rgba(74,222,128,.28); color:#bbf7d0; }
+    main { max-width:1300px; margin:0 auto; padding:18px; }
+    .card { background:linear-gradient(180deg, rgba(18,26,51,.96), rgba(10,16,31,.96)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:16px; box-shadow:0 12px 50px rgba(0,0,0,.22); }
+    .grid { display:grid; gap:14px; }
+    .four { grid-template-columns:repeat(4,minmax(0,1fr)); }
+    .two { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .value { margin-top:8px; font-size:24px; font-weight:800; font-variant-numeric:tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .small { color:var(--muted); font-size:13px; line-height:1.6; }
+    .pill { display:inline-flex; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,.06); color:#dbe5ff; margin:0 6px 6px 0; }
+    .pill.good { background:rgba(74,222,128,.12); color:#bbf7d0; }
+    .pill.warn { background:rgba(251,191,36,.12); color:#fde68a; }
+    .line { display:flex; justify-content:space-between; gap:10px; margin:8px 0; font-size:13px; }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .top3-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
+    .pos { padding:10px; border-radius:12px; background:rgba(255,255,255,.045); }
+    .pos h3 { margin:0 0 8px; font-size:14px; }
+    .history-table { width:100%; border-collapse:collapse; min-width:980px; }
+    .history-table th,.history-table td { padding:10px 8px; border-bottom:1px solid rgba(255,255,255,.08); text-align:left; vertical-align:top; font-size:13px; }
+    .history-table th { color:var(--muted); font-weight:600; }
+    .table-wrap { overflow:auto; }
+    .hit { color:#bbf7d0; font-weight:700; }
+    .miss { color:#fecaca; }
+    .actual { display:inline-flex; padding:2px 5px; border-radius:6px; background:rgba(74,222,128,.16); color:#bbf7d0; margin:1px 2px 1px 0; }
+    .candidate { display:inline-flex; padding:2px 5px; border-radius:6px; background:rgba(255,255,255,.07); color:#dbe5ff; margin:1px 2px 1px 0; }
+    .candidate.hit-candidate { background:rgba(74,222,128,.18); color:#bbf7d0; }
+    @media (max-width: 1000px) { .four,.two,.top3-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>xv1 预测</h1>
+  <div class="sub"><span>每位置 Top3、分层模型、Top1/Top3/分位置命中率</span><span id="refresh-status">已加载</span></div>
+  <div class="nav">
+    <a href="/">新首页</a>
+    <a href="/overview">总览</a>
+    <a href="/monitor">监控</a>
+    <a href="/predictions" class="primary">预测</a>
+    <a href="/gpt55-bypass">GPT5.5旁路v2</a>
+    <a href="/gpt55-bypass-v3">GPT5.5旁路v3</a>
+    <a href="/modules">模块</a>
+  </div>
+</header>
+<main>
+  <div class="grid four" id="metric-grid"></div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 style="margin-top:0;">下期最终融合 Top3</h2>
+      <div class="small" id="next-meta"></div>
+      <div class="top3-grid" style="margin-top:12px;" id="next-top3"></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0;">当前期融合 Top3</h2>
+      <div class="small" id="current-meta"></div>
+      <div class="top3-grid" style="margin-top:12px;" id="current-top3"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 style="margin-top:0;">分位置命中率</h2>
+    <div class="top3-grid" id="position-rates"></div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 style="margin-top:0;">GPT5.5 旁路评估 v2</h2>
+    <div class="small">旁路模式：只读取主模型/分层模型候选做第二路再排序，不覆盖正式输出；先展示和回测，稳定后再决定是否参与融合。</div>
+    <div class="grid four" style="margin-top:12px;" id="bypass-metrics"></div>
+    <div class="grid two" style="margin-top:12px;">
+      <div>
+        <h3 style="margin:0 0 8px;">下期旁路 Top3</h3>
+        <div class="top3-grid" id="bypass-next-top3"></div>
+      </div>
+      <div>
+        <h3 style="margin:0 0 8px;">近 30 期旁路回测</h3>
+        <div class="small" id="bypass-summary"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 style="margin-top:0;">预测历史比对（近 30 期）</h2>
+    <div class="small">按已开奖期号回看：显示每期实际开奖号码、每位置 Top3 是否命中、当期 Top1/Top3 命中数量。</div>
+    <div class="table-wrap" style="margin-top:12px;">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>期号</th>
+            <th>基准期</th>
+            <th>实际开奖</th>
+            <th>Top1</th>
+            <th>Top3</th>
+            <th>逐位置比对</th>
+            <th>评估时间</th>
+          </tr>
+        </thead>
+        <tbody id="history-compare"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 style="margin-top:0;">分层模型输出</h2>
+    <div id="layer-output"></div>
+  </div>
+</main>
+<script>
+  (function () {
+    const data = window.__XV1_SUMMARY__ || {};
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const el = (id) => document.getElementById(id);
+    const metrics = data.metrics || [];
+    el('metric-grid').innerHTML = metrics.map((m) => `<div class="card"><div class="label">${esc(m.name)}</div><div class="value">${esc(m.value)}</div><div class="small">${esc(m.desc)}</div></div>`).join('');
+
+    const pred = data.predictions || {};
+    const renderTop3 = (rows) => (rows || []).map((r) => `<div class="pos"><h3>${esc(r.label)}</h3><div class="mono">${esc((r.top3 || []).join(' / '))}</div><div class="small">score ${esc(r.score ?? '-')} · conf ${esc(r.confidence ?? '-')}</div><div class="small">${esc(r.note || '')}</div></div>`).join('') || '<div class="pos"><h3>暂无</h3><div class="small">没有模型输出</div></div>';
+    const fmtTop3 = (r) => Array.isArray(r?.top3) ? r.top3.map((x) => String(x).padStart(2, '0')) : [];
+    const fmtActual = (rows) => (rows || []).map((n) => `<span class="actual">${esc(String(n).padStart(2, '0'))}</span>`).join('');
+    const renderHistoryCompare = (rows) => (rows || []).map((row) => {
+      const actual = Array.isArray(row.actual) ? row.actual.map((x) => String(x).padStart(2, '0')) : [];
+      const compare = (row.compare || []).slice(0, 10);
+      const posHtml = compare.map((c, idx) => {
+        const candidates = fmtTop3(c);
+        const actualNo = String(c.actual ?? actual[idx] ?? '').padStart(2, '0');
+        const top1Hit = String(candidates[0] || '') === actualNo;
+        const top3Hit = candidates.includes(actualNo);
+        return `<div style="margin-bottom:4px;"><b>${esc(c.label || `第${idx + 1}名`)}</b> <span class="${top3Hit ? 'hit' : 'miss'}">${esc(actualNo || '-')}</span> → ${candidates.map((n) => `<span class="candidate ${n === actualNo ? 'hit-candidate' : ''}">${esc(n)}</span>`).join('')} <span class="small">${top1Hit ? 'Top1' : (top3Hit ? 'Top3' : '未中')}</span></div>`;
+      }).join('');
+      return `<tr>
+        <td class="mono">${esc(row.target_roundno || '-')}</td>
+        <td class="mono">${esc(row.based_on_roundno || '-')}</td>
+        <td class="mono">${fmtActual(actual) || '-'}</td>
+        <td class="mono ${Number(row.top1Hits || 0) ? 'hit' : 'miss'}">${esc(row.top1Hits ?? 0)}/${esc(row.possible ?? 10)}</td>
+        <td class="mono ${Number(row.top3Hits || 0) ? 'hit' : 'miss'}">${esc(row.top3Hits ?? row.rank_hits ?? 0)}/${esc(row.possible ?? row.rank_possible ?? 10)}</td>
+        <td>${posHtml || '-'}</td>
+        <td class="mono">${esc(row.evaluated_at || '-')}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="7" class="small">暂无已评估历史</td></tr>';
+    el('next-meta').textContent = `目标期：${data.next_roundno || '-'} · 最新基准：${data.latest_roundno || '-'}`;
+    el('current-meta').textContent = `当前期：${data.current_roundno || '-'} · 最新开奖时间：${data.latest_time || '-'}`;
+    el('next-top3').innerHTML = renderTop3(pred.next?.top3 || []);
+    el('current-top3').innerHTML = renderTop3(pred.current?.top3 || []);
+
+    const bypass = pred.bypass || {};
+    const bm = bypass.metrics || {};
+    el('bypass-metrics').innerHTML = [
+      ['旁路状态', bypass.enabled ? 'ON' : 'OFF', bypass.mode || 'shadow-only'],
+      ['Top1', `${bm.top1Rate ?? 0}%`, `${bm.top1Hits ?? 0}/${bm.possible ?? 0}`],
+      ['Top3', `${bm.top3Rate ?? 0}%`, `${bm.top3Hits ?? 0}/${bm.possible ?? 0}`],
+      ['样本', bm.samples ?? 0, '近 30 期已评估'],
+    ].map(([k,v,d]) => `<div class="card"><div class="label">${esc(k)}</div><div class="value">${esc(v)}</div><div class="small">${esc(d)}</div></div>`).join('');
+    el('bypass-next-top3').innerHTML = renderTop3(bypass.next?.top3 || []);
+    el('bypass-summary').innerHTML = `模型：${esc(bypass.model || 'oc2/gpt-5.5')}<br>模式：${esc(bypass.mode || 'shadow-only')}<br>说明：${esc(bypass.description || '')}`;
+
+    const rateRows = pred.metrics?.positionRates || [];
+    el('position-rates').innerHTML = rateRows.map((r) => `<div class="pos"><h3>${esc(r.label)}</h3><div class="mono">Top1 ${esc(r.top1Rate)}% · Top3 ${esc(r.top3Rate)}%</div><div class="small">Top1 ${esc(r.top1Hits)}/${esc(r.samples)} · Top3 ${esc(r.top3Hits)}/${esc(r.samples)}</div></div>`).join('');
+    el('history-compare').innerHTML = renderHistoryCompare(pred.history || []);
+
+    const layers = data.layers || [];
+    el('layer-output').innerHTML = layers.map((layer) => `<div class="card" style="margin-top:10px;"><div class="line"><span><b>${esc(layer.name)}</b> · ${esc(layer.desc)}</span><span class="mono">${esc(layer.status)}</span></div><div class="small">${esc(layer.detail || '')}</div><div class="top3-grid" style="margin-top:10px;">${renderTop3((layer.rows || []).slice(0,10))}</div></div>`).join('');
+  })();
+</script>
+</body>
+</html>

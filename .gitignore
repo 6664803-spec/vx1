@@ -1,0 +1,14 @@
+node_modules/
+.openclaw/
+.ssh/
+backups/
+memory/
+tmp/
+exports/
+*.log
+*.bak.*
+*.sql.zip
+*.db
+*.db-shm
+*.db-wal
+.DS_Store

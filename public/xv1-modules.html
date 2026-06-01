@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>xv1 模块</title>
+  <style>
+    :root { --bg:#07111f; --card:#101a31; --text:#eef2ff; --muted:#9aa6c3; --good:#4ade80; --warn:#fbbf24; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:linear-gradient(180deg, #050816, #07111f 30%, #04060f); color:var(--text); }
+    header { padding:20px 24px 12px; position:sticky; top:0; z-index:5; background:rgba(5,8,22,.88); backdrop-filter: blur(10px); border-bottom:1px solid rgba(255,255,255,.08); }
+    h1 { margin:0 0 8px; font-size:22px; }
+    .sub { color:var(--muted); font-size:13px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .nav { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .nav a { color:#dbe5ff; text-decoration:none; padding:7px 12px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); }
+    .nav a.primary { background:rgba(74,222,128,.14); border-color:rgba(74,222,128,.28); color:#bbf7d0; }
+    main { max-width:1200px; margin:0 auto; padding:18px; }
+    .grid { display:grid; gap:14px; }
+    .two { grid-template-columns:repeat(2, minmax(0,1fr)); }
+    .card { background:linear-gradient(180deg, rgba(18,26,51,.96), rgba(10,16,31,.96)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:16px; box-shadow:0 12px 50px rgba(0,0,0,.22); }
+    .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .value { margin-top:8px; font-size:24px; font-weight:800; }
+    .small { color:var(--muted); font-size:13px; line-height:1.6; }
+    .pill { display:inline-flex; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,.06); color:#dbe5ff; margin:0 6px 6px 0; }
+    .pill.good { background:rgba(74,222,128,.12); color:#bbf7d0; }
+    .pill.warn { background:rgba(251,191,36,.12); color:#fde68a; }
+    .line { display:flex; justify-content:space-between; gap:10px; margin:8px 0; font-size:13px; }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    @media (max-width: 900px) { .two { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>xv1 模块</h1>
+  <div class="sub"><span>模块边界、输入输出契约、回测口径、隔离规则都在这里</span><span id="refresh-status">已加载</span></div>
+  <div class="nav">
+    <a href="/">新首页</a>
+    <a href="/overview">总览</a>
+    <a href="/monitor">监控</a>
+    <a href="/predictions">预测</a>
+    <a href="/gpt55-bypass">GPT5.5旁路v2</a>
+    <a href="/gpt55-bypass-v3">GPT5.5旁路v3</a>
+    <a href="/modules" class="primary">模块</a>
+  </div>
+</header>
+<main>
+  <div class="grid two">
+    <div class="card">
+      <h2 style="margin-top:0;">输入 / 输出契约</h2>
+      <div class="small">输入：历史范围、使用期数、是否只用 timeseq 自身数据。输出：每个位置统一 Top3 + score + confidence + reason。</div>
+      <div style="margin-top:12px;" id="io-contract"></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0;">回测口径</h2>
+      <div class="small">只用过去预测未来，walk-forward 滚动回测，分开统计 Top1 / Top3 / 每位置命中率 / 连续命中失误。</div>
+      <div style="margin-top:12px;" id="backtest-rules"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 style="margin-top:0;">模块分层</h2>
+    <div class="small">把规则、统计、序列和融合拆开，每层都保留自己的 Top3 与得分。</div>
+    <div style="margin-top:10px;" id="layer-list"></div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 style="margin-top:0;">规则评分定义</h2>
+    <div class="small">频次 + 最近热度 + 间隔 + 转移，带时间衰减，作为每位置模型的起步基线。</div>
+    <div style="margin-top:10px;" id="rule-tags"></div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 style="margin-top:0;">训练来源</h2>
+    <div class="small">xv1 的训练入口只接 <b>timeseq_predictions</b>，当前保留 1620 条新格式数据用于训练对接。</div>
+    <div style="margin-top:10px;" id="training-tags"></div>
+  </div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 style="margin-top:0;">数据状态</h2>
+      <div class="small">这里展示 xv1 现在真正接上的数据来源和回测状态。</div>
+      <div style="margin-top:10px;" id="data-state"></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0;">模型接入状态</h2>
+      <div style="margin-top:10px;" id="model-card"></div>
+    </div>
+  </div>
+</main>
+<script>
+  (function () {
+    const summary = window.__XV1_SUMMARY__ || {};
+    const pages = summary.pages || [];
+    const layers = summary.layers || [];
+    const notes = summary.notes || [];
+    const training = summary.training || {};
+    document.getElementById('io-contract').innerHTML = [
+      '<div class="line"><span>输入范围</span><span class="mono">历史期 / 位置固定 / 可选 timeseq-only</span></div>',
+      '<div class="line"><span>输出字段</span><span class="mono">Top3 · score · confidence · reason</span></div>',
+      '<div class="line"><span>消费方式</span><span class="mono">页面 / 回测 / API 共用契约</span></div>',
+    ].join('');
+    document.getElementById('backtest-rules').innerHTML = [
+      '<div class="line"><span>方法</span><span class="mono">walk-forward</span></div>',
+      '<div class="line"><span>统计</span><span class="mono">Top1 / Top3 / 分位置</span></div>',
+      '<div class="line"><span>窗口</span><span class="mono">30 / 100 / 300 / 500</span></div>',
+    ].join('');
+    document.getElementById('layer-list').innerHTML = layers.map((l) => '<div class="line"><span><b>' + l.name + '</b> · ' + l.desc + '<div class="small" style="margin-top:4px;">输出：' + (l.output || '-') + ' · ' + (l.detail || '-') + '</div></span><span class="mono">' + l.status + '</span></div>').join('');
+    document.getElementById('rule-tags').innerHTML = [
+      '<span class="pill good">频次</span>',
+      '<span class="pill good">最近热度</span>',
+      '<span class="pill good">间隔</span>',
+      '<span class="pill good">转移</span>',
+      '<span class="pill warn">时间衰减</span>',
+    ].join(' ');
+    document.getElementById('training-tags').innerHTML = [
+      '<span class="pill good">' + (training.sourceText || 'timeseq_predictions only') + '</span>',
+      '<span class="pill">rows: ' + (training.rows || 1620) + '</span>',
+      '<span class="pill">latest: ' + ((training.rounds && training.rounds.max) || '20260601001') + '</span>',
+      '<span class="pill">isolation: ' + ((training.isolation !== false) ? 'ON' : 'OFF') + '</span>',
+      '<span class="pill warn">' + (training.note || 'only timeseq_predictions used') + '</span>',
+    ].join(' ');
+
+    const data = summary.data || {};
+    document.getElementById('data-state').innerHTML = [
+      ['draw 总数', data.draw_total ?? '-', (data.draw_sources || []).map((x) => `${x.source}:${x.c}`).join(' / ') || '-'],
+      ['predictions 回测', data.predictions_total ?? '-', `rank ${data.predictions_rank || '-'} | overall ${data.predictions_overall || '-'}`],
+      ['timeseq 回测', data.timeseq_total ?? '-', `rank ${data.timeseq_rank || '-'} | overall ${data.timeseq_overall || '-'}`],
+      ['最后回测', (data.latest_prediction?.target_roundno || data.latest_timeseq_prediction?.target_roundno || '-') , (data.latest_prediction?.evaluated_at || data.latest_timeseq_prediction?.evaluated_at || '-')],
+      ['xv1 模型行数', data.xv1_model_rows ?? '-', data.xv1_model_version || '-'],
+    ].map(([k, v, d]) => '<div class="line"><span><b>' + k + '</b></span><span class="mono">' + v + '</span></div><div class="small">' + d + '</div>').join('');
+
+    const modelLines = [
+      ['模型名称', training.name || 'xv1-timeseq-only-v1'],
+      ['模型版本', training.version || 'timeseq_predictions-only-1620'],
+      ['训练来源', training.sourceText || '只使用 timeseq_predictions 1620 条进行训练'],
+      ['训练行数', training.rows || 1620],
+      ['最新期号', (training.rounds && training.rounds.max) || '20260601001'],
+      ['隔离', (training.isolation !== false) ? 'ON' : 'OFF'],
+    ];
+    document.getElementById('model-card').innerHTML = modelLines.map(([k, v]) => '<div class="line"><span><b>' + k + '</b></span><span class="mono">' + v + '</span></div>').join('');
+  })();
+</script>
+</body>
+</html>

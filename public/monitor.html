@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>实时监控页 - 幸运飞艇</title>
+  <style>
+    :root { --bg:#07111f; --card:#101a31; --card2:#0d1629; --text:#eef2ff; --muted:#9aa6c3; --accent:#6aa9ff; --good:#4ade80; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:linear-gradient(180deg, #050816, #07111f 30%, #04060f); color:var(--text); }
+    header { padding:20px 24px 12px; position:sticky; top:0; z-index:5; background:rgba(5,8,22,.82); backdrop-filter: blur(10px); border-bottom:1px solid rgba(255,255,255,.08); }
+    h1 { margin:0 0 8px; font-size:22px; }
+    .sub { color:var(--muted); font-size:13px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .nav { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .nav a { color:#dbe5ff; text-decoration:none; padding:7px 12px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); }
+    .nav a:hover { text-decoration:none; background:rgba(105,169,255,.15); border-color:rgba(105,169,255,.28); }
+    .nav a.primary { background:rgba(74,222,128,.14); border-color:rgba(74,222,128,.28); color:#bbf7d0; }
+    a { color:#9ad0ff; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    main { max-width:1480px; margin:0 auto; padding:18px; }
+    .grid { display:grid; gap:14px; }
+    .four { grid-template-columns: repeat(4, minmax(0,1fr)); }
+    .two { grid-template-columns: 1.15fr .85fr; }
+    .card { background:linear-gradient(180deg, rgba(18,26,51,.96), rgba(10,16,31,.96)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:16px; box-shadow:0 12px 50px rgba(0,0,0,.22); }
+    .section-title { margin:0 0 12px; font-size:16px; }
+    .k { color:var(--muted); font-size:12px; }
+    .v { font-size:26px; font-weight:700; margin-top:6px; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .small { color:var(--muted); font-size:13px; }
+    .chip-row { display:flex; flex-wrap:wrap; gap:8px; }
+    .chip { padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); color:#dbe5ff; }
+    .accuracy-grid { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:10px; }
+    .accuracy-card { padding:12px; border-radius:12px; background:rgba(255,255,255,.04); }
+    .accuracy-card .title { color:var(--muted); font-size:12px; }
+    .accuracy-card .value { font-size:24px; font-weight:700; margin-top:6px; font-variant-numeric:tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .accuracy-card .sub { margin-top:6px; color:var(--muted); font-size:12px; line-height:1.4; }
+    .compare-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px; }
+    .compare-box { padding:14px; border-radius:12px; background:rgba(255,255,255,.04); }
+    .compare-box h3 { margin:0 0 8px; font-size:14px; }
+    .compare-line { display:flex; justify-content:space-between; gap:10px; margin:8px 0; font-size:13px; color:#dbe5ff; }
+    .compare-line .v { font-variant-numeric:tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.07); text-align:left; vertical-align:top; }
+    th { color:#b7c1db; position:sticky; top:0; background:rgba(10,16,31,.96); }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .list { display:grid; gap:8px; }
+    .item { padding:10px 12px; border-radius:12px; background:rgba(255,255,255,.04); }
+    .item h3 { margin:0 0 6px; font-size:14px; }
+    .pill { display:inline-flex; padding:4px 8px; border-radius:999px; background:rgba(74,222,128,.12); color:#bbf7d0; font-size:12px; margin-right:8px; }
+    @media (max-width: 1100px) { .four, .two { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>实时监控页</h1>
+  <div class="sub">
+    <span>独立展示训练+预测权重、回退原因、最近走势和核心状态</span>
+    <span id="refresh-status">刷新中…</span>
+  </div>
+  <div class="nav">
+    <a href="/">首页总览</a>
+    <a href="/modules">模块页</a>
+    <a href="/monitor" class="primary">实时监控</a>
+    <a href="/observer">旁路观察器</a>
+    <a href="/predictions">往期预测</a>
+  </div>
+</header>
+<main>
+  <div class="grid four" id="stats"></div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">同步 / 抓取状态</h2>
+      <div id="sync-summary" class="list"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">训练权重摘要</h2>
+      <div id="model-summary" class="list"></div>
+    </div>
+  </div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">当前预测 Top3</h2>
+      <div id="prediction-list" class="list"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">当前预测明细</h2>
+      <div id="prediction-detail" class="list"></div>
+    </div>
+  </div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">模型准确率总览</h2>
+      <div id="accuracy-overview" class="accuracy-grid"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">模块化对比</h2>
+      <div id="module-compare" class="compare-grid"></div>
+    </div>
+  </div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">回测摘要</h2>
+      <div id="backtest-summary" class="list"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">旁路观察器</h2>
+      <div id="observer-summary" class="list"></div>
+    </div>
+  </div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">监控说明</h2>
+      <div id="alert-summary" class="list"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">最近 30 期走势</h2>
+      <div id="recent-summary" class="list"></div>
+    </div>
+  </div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">最近 30 期走势</h2>
+      <div id="recent-count" class="small" style="margin-bottom:10px;"></div>
+      <div style="overflow:auto; max-height: 600px;"><table id="recent-table"></table></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">当前期 / 下期 Top3 概览</h2>
+      <div id="prediction-overview" class="list"></div>
+    </div>
+  </div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">预测历史比对（近 30 期）</h2>
+      <div class="small" style="margin-bottom:10px;">近 30 条预测记录、回测状态和命中统计</div>
+      <div style="overflow:auto; max-height: 560px;"><table id="prediction-history-table"></table></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">预测历史摘要</h2>
+      <div id="prediction-history-summary" class="list"></div>
+    </div>
+  </div>
+</main>
+<script>
+const api = async (url) => {
+  const res = await fetch(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+};
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>\"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const metricCard = (label, value, sub, width) => `<div class="accuracy-card"><div class="title">${esc(label)}</div><div class="value">${esc(String(value))}</div><div class="progress-row"><div class="progress-bar"><div class="progress-fill" style="width:${Math.max(0, Math.min(100, width ?? 0))}%;"></div></div></div><div class="sub">${esc(String(sub || ''))}</div></div>`;
+const compareBox = (title, items) => `<div class="compare-box"><h3>${esc(title)}</h3>${(items || []).map(([k, v]) => `<div class="compare-line"><span>${esc(k)}</span><span class="v">${esc(String(v))}</span></div>`).join('')}</div>`;
+let bootstrapSummary = window.__INITIAL_SUMMARY__ || null;
+window.__INITIAL_SUMMARY__ = null;
+let lastGoodSummary = null;
+
+function renderStats(m, observerSummary = {}, predictions = {}, recent30 = []) {
+  const o = observerSummary || {};
+  const p = predictions || {};
+  el('stats').innerHTML = [
+    ['最新期号', m.latest_roundno || '-', m.latest_time || ''],
+    ['预测期号', m.next_prediction_roundno || '-', m.next_prediction_time || ''],
+    ['训练模型', m.model_enabled ? '已启用' : '未启用', m.model_note || ''],
+    ['训练来源', m.model_training_source_text || '-', m.model_training_source || ''],
+  ].map(([k,v,d]) => `<div class="card"><div class="k">${esc(k)}</div><div class="v">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+  el('sync-summary').innerHTML = [
+    ['当前状态', m.latest_roundno ? '在线同步中' : '未获取到数据', '每 10 秒自动刷新'],
+    ['最新开奖', m.latest_roundno || '-', m.latest_time || ''],
+    ['下期预测', m.next_prediction_roundno || '-', m.next_prediction_time || ''],
+    ['本地存储', m.total_draws_text || '已存储到本地 SQL 数据库', `${m.total_draws ?? 0} 条`],
+  ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+  el('model-summary').innerHTML = [
+    ['模型名称', m.model_name || '-', m.model_version || ''],
+    ['特征说明', m.model_feature_text || '-', '多步序列 / 先验 / 趋势融合'],
+    ['训练窗口', m.model_lookback || '-', '回看样本窗口'],
+    ['训练样本', m.model_source_rows || 0, '累计样本数'],
+    ['来源拆分', m.model_source_breakdown_text || '-', 'csv / history / api'],
+    ['训练总量', m.model_training_totals_text || '-', 'CSV + history + api'],
+    ['融合权重', `${Number(m.model_blend ?? 0).toFixed(2)}`, '训练模型在最终预测中的占比'],
+    ['验证 Top1 / Top3', `${m.model_avg_top1 ?? 0}% / ${m.model_avg_top3 ?? 0}%`, 'validation'],
+    ['测试 Top1 / Top3', `${m.model_test_top1 ?? 0}% / ${m.model_test_top3 ?? 0}%`, 'test'],
+    ['回退说明', m.model_training_source_text || '-', 'CSV 基础 + history 校准'],
+  ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+  el('accuracy-overview').innerHTML = [
+    metricCard('整体准确率', m.overall_accuracy_text || '-', m.split_accuracy_text || '近 30 期回测汇总', Number(String(m.overall_accuracy_text || '0').replace('%', '')) || 0),
+    metricCard('位置命中率', m.position_text || '-', '位置 / 1-10 名 Top3', Math.min(100, Math.max(0, (Number(String(m.position_text || '0').split('/')[0]) || 0) * 4))),
+    metricCard('冠亚和命中率', m.sum_text || '-', '冠亚和大/小/单/双', Math.min(100, Math.max(0, (Number(String(m.sum_text || '0').split('/')[0]) || 0) * 4))),
+    metricCard('龙虎命中率', m.dragon_text || '-', '龙虎 1-5', Math.min(100, Math.max(0, (Number(String(m.dragon_text || '0').split('/')[0]) || 0) * 4))),
+    metricCard('验证 Top1', `${m.model_avg_top1 ?? 0}%`, 'Validation Top1', Number(m.model_avg_top1 || 0)),
+    metricCard('验证 Top3', `${m.model_avg_top3 ?? 0}%`, 'Validation Top3', Number(m.model_avg_top3 || 0)),
+    metricCard('测试 Top1', `${m.model_test_top1 ?? 0}%`, 'Test Top1', Number(m.model_test_top1 || 0)),
+    metricCard('测试 Top3', `${m.model_test_top3 ?? 0}%`, 'Test Top3', Number(m.model_test_top3 || 0)),
+  ].join('');
+
+  el('module-compare').innerHTML = [
+    compareBox('主模型', [
+      ['名称', m.model_name || '-'],
+      ['训练来源', m.model_training_source_text || '-'],
+      ['训练总量', m.model_training_totals_text || '-'],
+      ['验证 / 测试', `${m.model_avg_top1 ?? 0}% / ${m.model_avg_top3 ?? 0}%`, `${m.model_test_top1 ?? 0}% / ${m.model_test_top3 ?? 0}%`],
+    ]),
+    compareBox('旁路观察器', [
+      ['标签', o.tag || '-'],
+      ['样本源', (o.sourceCounts || []).map(x => `${x.source}:${x.c}`).join(' / ') || '-'],
+      ['最新期号', o.latestRoundno || '-'],
+      ['用途', '只观察 / 对比 / 试验'],
+    ]),
+  ].join('');
+
+  const currentPred = p.current || { top3: [], fusion: [], side: {} };
+  const nextPred = p.next || { top3: [], fusion: [], side: {} };
+
+  const renderRows = (rows) => {
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) return '<div class="item"><h3>暂无预测数据</h3><div class="small">接口已返回，但当前期预测为空，请稍后刷新。</div></div>';
+    return list.map((item, idx) => `<div class="item"><h3>第${idx + 1}名 <span class="pill">${esc(String(item.score ?? '-'))}</span></h3><div class="mono">${esc((item.top3 || []).join(' / ') || '-')}</div><div class="small">${esc(item.note || '')}</div></div>`).join('');
+  };
+  el('prediction-list').innerHTML = renderRows(currentPred.top3);
+
+  el('prediction-detail').innerHTML = [
+    ['当前期号', m.latest_roundno || '-', '本期最新开奖号'],
+    ['下期期号', m.next_prediction_roundno || '-', '下期预测目标'],
+    ['预测模型', m.model_name || '-', m.model_version || ''],
+    ['训练来源', m.model_training_source_text || '-', m.model_training_source || ''],
+    ['当前期 Top3 数量', currentPred.top3?.length || 0, '每个位置一组 Top3 候选'],
+    ['下期 Top3 数量', nextPred.top3?.length || 0, '每个位置一组 Top3 候选'],
+  ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+  el('backtest-summary').innerHTML = [
+    ['整体准确率', m.overall_accuracy_text || '-', m.split_accuracy_text || ''],
+    ['位置命中', m.position_text || '-', '近 30 期累计'],
+    ['冠亚和命中', m.sum_text || '-', '近 30 期累计'],
+    ['龙虎命中', m.dragon_text || '-', '近 30 期累计'],
+  ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+  el('observer-summary').innerHTML = [
+    ['状态', observerSummary.latestRoundno ? '已启用' : '未启用', observerSummary.tag || '旁路模型'],
+    ['标签', observerSummary.label || '-', 'shadow observer'],
+    ['最新期号', observerSummary.latestRoundno || '-', observerSummary.latestTime || ''],
+    ['样本源', (observerSummary.sourceCounts || []).map(x => `${x.source}:${x.c}`).join(' / ') || '-', 'csv / history / live'],
+    ['用途', '只观察不干预主链路', '不参与主预测打分'],
+  ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+  el('alert-summary').innerHTML = [
+    ['监控入口', '首页 / 模块页 / 监控页', '都已接通'],
+    ['刷新机制', '10 秒自动刷新', '失焦返回也会立即刷新'],
+    ['页面职责', '训练 / 预测 / 回测 / 走势', '独立分区展示'],
+    ['预测展示', '当前期 / 下期 / Top3 概览', '与 summary 数据结构一致'],
+    ['当前状态', m.latest_roundno ? '数据正常' : '等待同步', `最近更新 ${m.latest_time || '-'}`],
+  ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+  el('prediction-overview').innerHTML = [
+    ['当前期', currentPred.top3?.[0]?.label || '当前期', `${currentPred.top3?.length || 0} 组`],
+    ['下期', nextPred.top3?.[0]?.label || '下期', `${nextPred.top3?.length || 0} 组`],
+    ['当前 Top1', currentPred.top3?.[0]?.top3?.join(' / ') || '-', currentPred.top3?.[0]?.note || ''],
+    ['下期 Top1', nextPred.top3?.[0]?.top3?.join(' / ') || '-', nextPred.top3?.[0]?.note || ''],
+  ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+}
+
+function renderRecent(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const head = '<tr><th>期号</th><th>号码</th><th>冠亚和</th><th>大小单双</th><th>龙虎</th></tr>';
+  const body = list.map(r => `<tr><td class="mono">${esc(r.roundno)}</td><td class="mono">${esc((r.numbers || []).join(','))}</td><td class="mono">${esc(r.sum12)}</td><td>${esc(r.bigsmall)} / ${esc(r.oddeven)}</td><td class="mono">${esc((r.dragon_tiger || []).join(','))}</td></tr>`).join('');
+  el('recent-table').innerHTML = head + body;
+  const summary = list.slice(0, 5).map(r => `<div class="item"><h3>${esc(r.roundno)}</h3><div class="mono">${esc((r.numbers || []).join(' / '))}</div><div class="small">${esc(r.sum12)} ｜ ${esc(r.bigsmall)} / ${esc(r.oddeven)} ｜ ${esc((r.dragon_tiger || []).join(' / '))}</div></div>`).join('');
+  const summaryTarget = el('recent-summary');
+  if (summaryTarget) summaryTarget.innerHTML = summary || '<div class="item"><h3>暂无最近走势</h3><div class="small">接口已返回，但最近 30 期为空。</div></div>';
+  const countTarget = el('recent-count');
+  if (countTarget) countTarget.textContent = `共 ${list.length} 期，展示最近 30 期`;
+}
+
+function fmtPredictionStatus(row) {
+  if (!row) return '<span class="pill">未知</span>';
+  if (row.evaluated_at) return '<span class="pill" style="background:rgba(74,222,128,.12);color:#bbf7d0;">已回测</span>';
+  return '<span class="pill" style="background:rgba(251,191,36,.12);color:#fde68a;">待回测</span>';
+}
+
+function renderPredictionHistory(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const head = '<tr><th>目标期号</th><th>基准期号</th><th>状态</th><th>命中</th><th>位置</th><th>冠亚和</th><th>龙虎</th><th>更新时间</th></tr>';
+  const body = list.map(r => {
+    const hit = (Number(r.rank_hits || 0) + Number(r.sum_hits || 0) + Number(r.dragon_hits || 0));
+    const total = Number(r.accuracy_possible || 0) || 17;
+    return `<tr>
+      <td class="mono">${esc(r.target_roundno || '-')}</td>
+      <td class="mono">${esc(r.based_on_roundno || '-')}</td>
+      <td>${fmtPredictionStatus(r)}</td>
+      <td class="mono">${esc(hit)}/${esc(total)}</td>
+      <td class="mono">${esc(Number(r.rank_hits || 0))}/${esc(Number(r.rank_possible || 0) || 10)}</td>
+      <td class="mono">${esc(Number(r.sum_hits || 0))}/${esc(Number(r.sum_possible || 0) || 2)}</td>
+      <td class="mono">${esc(Number(r.dragon_hits || 0))}/${esc(Number(r.dragon_possible || 0) || 5)}</td>
+      <td class="mono">${esc(r.evaluated_at || r.generated_at || '-')}</td>
+    </tr>`;
+  }).join('');
+  const table = el('prediction-history-table');
+  if (table) table.innerHTML = head + body;
+  const summaryTarget = el('prediction-history-summary');
+  if (summaryTarget) {
+    const evaluated = list.filter(r => r.evaluated_at).length;
+    const avg = list.length ? (list.reduce((acc, r) => acc + Number(r.accuracy_rate || 0), 0) / list.filter(r => r.accuracy_rate != null).length || 0) : 0;
+    summaryTarget.innerHTML = [
+      ['记录总数', list.length, '近 30 期预测'],
+      ['已回测', evaluated, '已完成回测的记录'],
+      ['平均命中率', `${avg ? avg.toFixed(1) : '0.0'}%`, '已回测记录平均值'],
+      ['最近目标期号', list[0]?.target_roundno || '-', list[0]?.generated_at || ''],
+    ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+  }
+}
+
+async function refresh() {
+  try {
+    const data = bootstrapSummary || await api('/api/summary');
+    bootstrapSummary = null;
+    lastGoodSummary = data;
+    try {
+      localStorage.setItem('monitor:lastSummary', JSON.stringify({ at: Date.now(), data }));
+    } catch {}
+    renderStats(data.metrics || {}, data.observer || {}, data.predictions || {}, data.recent30 || []);
+    renderRecent(data.recent30 || []);
+    renderPredictionHistory(data.prediction_history || []);
+    const observerData = data.observer || {};
+    if (observerData.enabled) {
+      const obsOverview = observerData.positionTop3 || [];
+      const sample = observerData.sampleTop3 || null;
+      const lines = obsOverview.slice(0, 5).map((row) => `<div class="item"><h3>${esc(row.label || '-')}</h3><div class="mono">${esc((row.top3 || []).join(' / ') || '-')}</div><div class="small">${esc(row.note || '')}</div></div>`).join('');
+      const sampleLine = sample ? `<div class="item"><h3>样本观察</h3><div class="mono">${esc((sample.top3 || []).join(' / ') || '-')}</div><div class="small">${esc(sample.note || '')}</div></div>` : '';
+      const target = el('observer-summary');
+      if (target && !target.innerHTML) target.innerHTML = lines + sampleLine;
+    }
+    const status = el('refresh-status');
+    if (status) status.textContent = '已刷新 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  } catch (err) {
+    console.error('[monitor refresh]', err);
+    const status = el('refresh-status');
+    const fallback = lastGoodSummary || (() => {
+      try {
+        const cached = localStorage.getItem('monitor:lastSummary');
+        return cached ? JSON.parse(cached).data : null;
+      } catch {
+        return null;
+      }
+    })();
+    if (fallback && !lastGoodSummary) {
+      lastGoodSummary = fallback;
+      renderStats(fallback.metrics || {}, fallback.observer || {}, fallback.predictions || {}, fallback.recent30 || []);
+      renderRecent(fallback.recent30 || []);
+      renderPredictionHistory(fallback.prediction_history || []);
+    }
+    if (status) {
+      const reason = err?.message ? `：${err.message}` : '';
+      status.textContent = `数据刷新失败${reason}，自动重试中${fallback ? '（已显示上次成功数据）' : ''}`;
+    }
+  }
+}
+refresh();
+setInterval(refresh, 10000);
+window.addEventListener('focus', refresh);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>

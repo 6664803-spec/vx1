@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>旁路观察器 - 幸运飞艇</title>
+  <style>
+    :root { --bg:#07111f; --card:#101a31; --card2:#0d1629; --text:#eef2ff; --muted:#9aa6c3; --accent:#6aa9ff; --good:#4ade80; --warn:#fbbf24; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:linear-gradient(180deg, #050816, #07111f 30%, #04060f); color:var(--text); }
+    header { padding:20px 24px 12px; position:sticky; top:0; z-index:5; background:rgba(5,8,22,.82); backdrop-filter: blur(10px); border-bottom:1px solid rgba(255,255,255,.08); }
+    h1 { margin:0 0 8px; font-size:22px; }
+    .sub { color:var(--muted); font-size:13px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .nav { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .nav a { color:#dbe5ff; text-decoration:none; padding:7px 12px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); }
+    .nav a:hover { text-decoration:none; background:rgba(105,169,255,.15); border-color:rgba(105,169,255,.28); }
+    .nav a.primary { background:rgba(74,222,128,.14); border-color:rgba(74,222,128,.28); color:#bbf7d0; }
+    a { color:#9ad0ff; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    main { max-width:1500px; margin:0 auto; padding:18px; }
+    .grid { display:grid; gap:14px; }
+    .four { grid-template-columns: repeat(4, minmax(0,1fr)); }
+    .two { grid-template-columns: 1.1fr .9fr; }
+    .three { grid-template-columns: repeat(3, minmax(0,1fr)); }
+    .accuracy-grid { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:10px; }
+    .accuracy-card { padding:12px; border-radius:12px; background:rgba(255,255,255,.04); }
+    .accuracy-card .title { color:var(--muted); font-size:12px; }
+    .accuracy-card .value { font-size:24px; font-weight:700; margin-top:6px; font-variant-numeric:tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .accuracy-card .sub { margin-top:6px; color:var(--muted); font-size:12px; line-height:1.4; }
+    .card { background:linear-gradient(180deg, rgba(18,26,51,.96), rgba(10,16,31,.96)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:16px; box-shadow:0 12px 50px rgba(0,0,0,.22); }
+    .section-title { margin:0 0 12px; font-size:16px; }
+    .small { color:var(--muted); font-size:13px; }
+    .k { color:var(--muted); font-size:12px; }
+    .v { font-size:26px; font-weight:700; margin-top:6px; font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .pill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); color:#dbe5ff; border:0; cursor:pointer; }
+    .pill.active { background:rgba(74,222,128,.14); color:#bbf7d0; }
+    .button-row { display:flex; gap:8px; flex-wrap:wrap; }
+    .list { display:grid; gap:8px; }
+    .item { padding:10px 12px; border-radius:12px; background:rgba(255,255,255,.04); }
+    .item h3 { margin:0 0 6px; font-size:14px; }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .hidden { display:none !important; }
+    table { width:100%; border-collapse:collapse; font-size:13px; }
+    th, td { padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.07); text-align:left; vertical-align:top; }
+    th { color:#b7c1db; position:sticky; top:0; background:rgba(10,16,31,.96); }
+    .top3-grid { display:grid; gap:8px; }
+    .top3-item { padding:10px; border-radius:12px; background:rgba(255,255,255,.04); }
+    .top3-item h4 { margin:0 0 6px; font-size:14px; }
+    .tag-row { display:flex; gap:8px; flex-wrap:wrap; }
+    .tag { display:inline-flex; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,.06); color:#dbe5ff; font-size:12px; }
+    .tag.good { background:rgba(74,222,128,.12); color:#bbf7d0; }
+    .tag.warn { background:rgba(251,191,36,.12); color:#fde68a; }
+    @media (max-width: 1100px) { .four, .two, .three { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>旁路观察器</h1>
+  <div class="sub">
+    <span>主链路不变，旁路模型只做观察、比较和切换参考</span>
+    <span id="refresh-status">刷新中…</span>
+  </div>
+  <div class="nav">
+    <a href="/">首页总览</a>
+    <a href="/modules">模块页</a>
+    <a href="/monitor">实时监控</a>
+    <a href="/observer" class="primary">旁路观察器</a>
+    <a href="/timeseq">时序预测模型训练</a>
+    <a href="/predictions">往期预测</a>
+  </div>
+</header>
+<main>
+  <div class="grid four" id="stats"></div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 class="section-title">模型准确率总览</h2>
+    <div id="accuracy-overview" class="accuracy-grid"></div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 class="section-title">视图切换</h2>
+    <div class="button-row" id="mode-buttons">
+      <button class="pill active" data-mode="overview">总览</button>
+      <button class="pill" data-mode="main">主模型</button>
+      <button class="pill" data-mode="observer">旁路观察器</button>
+      <button class="pill" data-mode="compare">对比</button>
+      <button class="pill" data-mode="history">历史与走势</button>
+    </div>
+    <div class="small" style="margin-top:10px;">按钮只切换展示，不会影响主预测链路。</div>
+  </div>
+
+  <div id="view-overview" class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">主模型摘要</h2>
+      <div id="main-summary" class="list"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">旁路观察器摘要</h2>
+      <div id="observer-summary" class="list"></div>
+    </div>
+  </div>
+
+  <div id="view-main" class="grid two hidden" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">主模型 Top3</h2>
+      <div id="main-top3" class="top3-grid"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">主模型分项</h2>
+      <div id="main-side" class="list"></div>
+    </div>
+  </div>
+
+  <div id="view-observer" class="grid two hidden" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">旁路观察器 Top3</h2>
+      <div id="observer-top3" class="top3-grid"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">旁路观察器分项</h2>
+      <div id="observer-side" class="list"></div>
+    </div>
+  </div>
+
+  <div id="view-compare" class="grid two hidden" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">主模型 / 旁路模型来源</h2>
+      <div id="compare-source" class="list"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">验证 / 测试指标</h2>
+      <div id="compare-metrics" class="list"></div>
+    </div>
+  </div>
+
+  <div id="view-history" class="grid two hidden" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">最近 30 期走势</h2>
+      <div style="overflow:auto; max-height: 680px;"><table id="recent-table"></table></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">旁路观察说明</h2>
+      <div id="history-summary" class="list"></div>
+    </div>
+  </div>
+</main>
+<script>
+const api = async (url) => {
+  const res = await fetch(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+};
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const metricCard = (label, value, sub, width) => `<div class="card metric-card"><div class="title">${esc(label)}</div><div class="value">${esc(String(value))}</div><div class="progress-row"><div class="progress-bar"><div class="progress-fill" style="width:${Math.max(0, Math.min(100, width ?? 0))}%;"></div></div></div><div class="sub">${esc(String(sub || ''))}</div></div>`;
+let bootstrapSummary = window.__INITIAL_SUMMARY__ || null;
+window.__INITIAL_SUMMARY__ = null;
+
+let currentMode = 'overview';
+function showMode(mode) {
+  currentMode = mode;
+  ['overview','main','observer','compare','history'].forEach((k) => {
+    const node = el(`view-${k}`);
+    if (node) node.classList.toggle('hidden', k !== mode);
+  });
+  [...document.querySelectorAll('#mode-buttons .pill')].forEach(btn => btn.classList.toggle('active', btn.dataset.mode === mode));
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('#mode-buttons .pill');
+  if (!btn) return;
+  showMode(btn.dataset.mode || 'overview');
+});
+
+const renderTop3 = (rows) => (rows || []).map((row) => `<div class="top3-item"><h4>${esc(row.label || '-')} <span class="mono">${Number(row.score || 0).toFixed(4)}</span></h4><div class="mono">${esc((row.top3 || []).join(' / ') || '-')}</div><div class="small">${esc(row.note || '')}</div><div class="small">置信度：${Number(row.confidence || 0).toFixed(4)}</div></div>`).join('');
+
+const renderList = (rows) => (rows || []).map(([k, v, d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+function renderRecent(rows) {
+  const head = '<tr><th>期号</th><th>号码</th><th>冠亚和</th><th>大小单双</th><th>龙虎</th></tr>';
+  const body = (rows || []).map(r => `<tr><td class="mono">${esc(r.roundno)}</td><td class="mono">${esc((r.numbers || []).join(','))}</td><td class="mono">${esc(r.sum12)}</td><td>${esc(r.bigsmall)} / ${esc(r.oddeven)}</td><td class="mono">${esc((r.dragon_tiger || []).join(','))}</td></tr>`).join('');
+  el('recent-table').innerHTML = head + body;
+}
+
+function pickObserverTop3(observer) {
+  return (observer?.positionTop3 || []).slice(0, 10).map((row) => ({
+    label: row.label,
+    top3: row.top3,
+    note: row.note,
+    score: row.score,
+    confidence: row.confidence,
+  }));
+}
+
+async function refresh() {
+  try {
+    const data = bootstrapSummary || await api('/api/summary');
+    bootstrapSummary = null;
+    const m = data.metrics || {};
+    const o = data.observer || {};
+    const currentPred = data.predictions?.current || { top3: [], side: {} };
+    const nextPred = data.predictions?.next || { top3: [], side: {} };
+
+    el('stats').innerHTML = [
+      ['最新期号', m.latest_roundno || '-', m.latest_time || ''],
+      ['训练来源', m.model_training_source_text || '-', m.model_training_source || ''],
+      ['旁路观察器', o.enabled ? '已启用' : '未启用', o.tag || 'shadow'],
+      ['数据总量', m.total_draws || 0, m.model_training_totals_text || ''],
+    ].map(([k,v,d]) => `<div class="card"><div class="k">${esc(k)}</div><div class="v">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+    el('main-summary').innerHTML = [
+      ['模型名称', m.model_name || '-', m.model_version || ''],
+      ['训练总量', m.model_training_totals_text || '-', 'CSV + history + api'],
+      ['训练窗口', m.model_lookback || '-', '样本窗口'],
+      ['验证 / 测试', `${m.model_avg_top1 ?? 0}% / ${m.model_avg_top3 ?? 0}%`, `${m.model_test_top1 ?? 0}% / ${m.model_test_top3 ?? 0}%`],
+    ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+    el('observer-summary').innerHTML = [
+      ['标签', o.label || '-', o.tag || '旁路观察器'],
+      ['最新期号', o.latestRoundno || '-', o.latestTime || ''],
+      ['样本源', (o.sourceCounts || []).map(x => `${x.source}:${x.c}`).join(' / ') || '-', 'csv / history / live'],
+      ['用途', '只观察，不参与主打分', 'shadow observer'],
+    ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+    el('accuracy-overview').innerHTML = [
+      metricCard('整体准确率', `${m.overall_accuracy_text || '-'}`, m.split_accuracy_text || '近 30 期回测汇总', Number(String(m.overall_accuracy_text || '0').replace('%', '')) || 0),
+      metricCard('位置命中率', m.position_text || '-', '位置 / 1-10 名 Top3', Math.min(100, Math.max(0, (Number(String(m.position_text || '0').split('/')[0]) || 0) * 4))),
+      metricCard('冠亚和命中率', m.sum_text || '-', '冠亚和大/小/单/双', Math.min(100, Math.max(0, (Number(String(m.sum_text || '0').split('/')[0]) || 0) * 4))),
+      metricCard('龙虎命中率', m.dragon_text || '-', '龙虎 1-5', Math.min(100, Math.max(0, (Number(String(m.dragon_text || '0').split('/')[0]) || 0) * 4))),
+    ].join('');
+
+    el('main-top3').innerHTML = renderTop3(currentPred.top3 || []);
+    el('main-side').innerHTML = [
+      ['冠亚和', `${currentPred.side?.sum?.bigsmall || '-'} / ${currentPred.side?.sum?.oddeven || '-'}`, '主模型'],
+      ['冠亚季', (currentPred.side?.rankCategories || []).map(x => `${x.label}:${x.value}`).join(' | ') || '-', '主模型'],
+      ['龙虎', (currentPred.side?.dragonTiger || []).map(x => `${x.label}:${x.value}`).join(' | ') || '-', '主模型'],
+    ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+    el('observer-top3').innerHTML = renderTop3(pickObserverTop3(o));
+    el('observer-side').innerHTML = [
+      ['观察器状态', o.enabled ? '已启用' : '未启用', o.tag || '旁路'],
+      ['来源分布', (o.sourceCounts || []).map(x => `${x.source}:${x.c}`).join(' / ') || '-', 'csv / history / live'],
+      ['当前侧边', o.sampleTop3?.label || '-', (o.sampleTop3?.top3 || []).join(' / ') || '-'],
+    ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+    el('compare-source').innerHTML = [
+      ['主模型来源', m.model_training_source_text || '-', m.model_source_breakdown_text || ''],
+      ['旁路观察器', o.tag || '-', `${(o.sourceCounts || []).map(x => `${x.source}:${x.c}`).join(' / ') || '-'}`],
+      ['训练总量', m.model_training_totals_text || '-', '主链路保持稳定'],
+    ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+    el('compare-metrics').innerHTML = [
+      ['验证 Top1 / Top3', `${m.model_avg_top1 ?? 0}% / ${m.model_avg_top3 ?? 0}%`, '主模型'],
+      ['测试 Top1 / Top3', `${m.model_test_top1 ?? 0}% / ${m.model_test_top3 ?? 0}%`, '主模型'],
+      ['回测准确率', m.overall_accuracy_text || '-', m.split_accuracy_text || ''],
+    ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+    el('history-summary').innerHTML = [
+      ['主链路', '稳定输出', '不受旁路切换影响'],
+      ['旁路用途', '观察 / 比较 / 试验', '按钮切换仅改变展示'],
+      ['建议', '主模型稳定后再考虑升级', 'shadow > main 才切换'],
+    ].map(([k,v,d]) => `<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d || ''))}</div></div>`).join('');
+
+    renderRecent(data.recent30 || []);
+    const status = el('refresh-status');
+    if (status) status.textContent = '已刷新 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  } catch (err) {
+    const status = el('refresh-status');
+    if (status) status.textContent = '刷新失败，自动重试中';
+    const stats = el('stats');
+    if (stats && !stats.innerHTML) stats.innerHTML = '<div class="card"><div class="k">状态</div><div class="v">暂无数据</div><div class="small">页面刷新失败，稍后会自动重试。</div></div>';
+    console.error(err);
+  }
+}
+
+showMode('overview');
+refresh();
+setInterval(refresh, 10000);
+window.addEventListener('focus', refresh);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>

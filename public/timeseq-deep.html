@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>时序深度实验页 - 幸运飞艇</title>
+  <style>
+    :root { --bg:#07111f; --card:#101a31; --text:#eef2ff; --muted:#9aa6c3; --good:#4ade80; --warn:#fbbf24; --accent:#6aa9ff; }
+    *{box-sizing:border-box} body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:linear-gradient(180deg,#050816,#07111f 30%,#04060f);color:var(--text)}
+    header{padding:20px 24px 12px;position:sticky;top:0;z-index:5;background:rgba(5,8,22,.82);backdrop-filter:blur(10px);border-bottom:1px solid rgba(255,255,255,.08)}
+    h1{margin:0 0 8px;font-size:22px}.sub{color:var(--muted);font-size:13px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}.nav{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .nav a{color:#dbe5ff;text-decoration:none;padding:7px 12px;border-radius:999px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08)}
+    .nav a.primary{background:rgba(74,222,128,.14);border-color:rgba(74,222,128,.28);color:#bbf7d0} main{max-width:1600px;margin:0 auto;padding:18px}
+    .grid{display:grid;gap:14px}.four{grid-template-columns:repeat(4,minmax(0,1fr))}.two{grid-template-columns:1.05fr .95fr}.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .card{background:linear-gradient(180deg,rgba(18,26,51,.96),rgba(10,16,31,.96));border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:16px;box-shadow:0 12px 50px rgba(0,0,0,.22)}
+    .section-title{margin:0 0 12px;font-size:16px}.small{color:var(--muted);font-size:13px}.k{color:var(--muted);font-size:12px}.v{font-size:26px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+    .accuracy-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.accuracy-card{padding:12px;border-radius:12px;background:rgba(255,255,255,.04)}.accuracy-card .title{color:var(--muted);font-size:12px}.accuracy-card .value{font-size:24px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.accuracy-card .sub{margin-top:6px;color:var(--muted);font-size:12px;line-height:1.4}
+    .tag-row{display:flex;flex-wrap:wrap;gap:8px}.tag{display:inline-flex;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.06);color:#dbe5ff;font-size:12px}.tag.good{background:rgba(74,222,128,.12);color:#bbf7d0}.tag.warn{background:rgba(251,191,36,.12);color:#fde68a}.list{display:grid;gap:8px}.item{padding:10px 12px;border-radius:12px;background:rgba(255,255,255,.04)}.item h3{margin:0 0 6px;font-size:14px}.mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}.model-grid{display:grid;gap:10px}.model-card{padding:12px;border-radius:12px;background:rgba(255,255,255,.04)}.model-card h3{margin:0 0 8px;font-size:14px}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.07);text-align:left;vertical-align:top}th{color:#b7c1db;position:sticky;top:0;background:rgba(10,16,31,.96)}@media (max-width:1100px){.four,.two,.three,.accuracy-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<header>
+  <h1>时序深度实验页</h1>
+  <div class="sub"><span>新独立页面：把训练摘要、实验室结果、和现成四路模型放在一起看</span><span id="refresh-status">刷新中…</span></div>
+  <div class="nav">
+    <a href="/">首页总览</a><a href="/modules">模块页</a><a href="/monitor">实时监控</a><a href="/observer">旁路观察器</a><a href="/timeseq">时序预测模型训练</a><a href="/timeseq-lab">时序预测模型实验室</a><a href="/timeseq-deep" class="primary">时序深度实验页</a><a href="/predictions">往期预测</a>
+  </div>
+</header>
+<main>
+  <div class="grid four" id="stats"></div>
+  <div class="card" style="margin-top:14px;"><h2 class="section-title">训练模型摘要</h2><div id="training-grid" class="three model-grid"></div></div>
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card"><h2 class="section-title">当前期实验预测</h2><div id="current-pred" class="list"></div></div>
+    <div class="card"><h2 class="section-title">下期实验预测</h2><div id="next-pred" class="list"></div></div>
+  </div>
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card"><h2 class="section-title">模型总览</h2><div id="model-grid" class="three model-grid"></div></div>
+    <div class="card"><h2 class="section-title">训练信息</h2><div id="summary-list" class="list"></div></div>
+  </div>
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card"><h2 class="section-title">独立最近 30 期走势</h2><div style="overflow:auto; max-height: 680px;"><table id="recent-table"></table></div></div>
+    <div class="card"><h2 class="section-title">独立最近 100 期回测</h2><div id="prediction-100-summary" class="list" style="margin-bottom:12px;"></div><div style="overflow:auto; max-height: 620px;"><table id="prediction-history-table"></table></div></div>
+  </div>
+  <div class="card" style="margin-top:14px;">
+    <h2 class="section-title">模型切换查看</h2>
+    <div id="model-switch" class="tag-row"></div>
+    <div id="selected-model-view" class="list" style="margin-top:12px;"></div>
+  </div>
+  <div class="card" style="margin-top:14px;">
+    <h2 class="section-title">模型历史命中排行</h2>
+    <div style="overflow:auto; max-height: 420px;"><table id="model-ranking-table"></table></div>
+  </div>
+  <div class="card" style="margin-top:14px;">
+    <h2 class="section-title">最优版本快捷区</h2>
+    <div id="best-version-box" class="list"></div>
+  </div>
+  <div class="card" style="margin-top:14px;">
+    <h2 class="section-title">模型历史版本对比</h2>
+    <div class="small" style="margin-bottom:8px;">按测试 Top3/Top1 自动排序，最优版本会排在最上面。</div>
+    <div style="overflow:auto; max-height: 420px;"><table id="model-history-table"></table></div>
+  </div>
+  <div class="card" style="margin-top:14px;">
+    <h2 class="section-title">四路模型位置对比</h2>
+    <div style="overflow:auto; max-height: 620px;"><table id="model-matrix"></table></div>
+  </div>
+  <div class="card" style="margin-top:14px;"><h2 class="section-title">最近 100 期位置命中率</h2><div id="hitrate-100" class="accuracy-grid"></div></div>
+</main>
+<script>
+const api = async (url) => { const res = await fetch(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' }); if (!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); };
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>\"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+const metricCard = (label, value, sub) => `<div class="accuracy-card"><div class="title">${esc(label)}</div><div class="value">${esc(String(value))}</div><div class="sub">${esc(String(sub || ''))}</div></div>`;
+const MODEL_KEYS = ['ensemble', 'frequency', 'markov', 'xgboost', 'lstm'];
+let selectedModelKey = window.__TIMESEQ_DEEP_SELECTED__ || 'ensemble';
+let bootstrapSummary = window.__INITIAL_TIMESEQ_DEEP__ || null; window.__INITIAL_TIMESEQ_DEEP__ = null;
+function setSelectedModelKey(key){ selectedModelKey = key; window.__TIMESEQ_DEEP_SELECTED__ = key; renderCurrentPage(); }
+function renderRecent(rows){ const head='<tr><th>期号</th><th>号码</th><th>冠亚和</th><th>大小单双</th><th>龙虎</th></tr>'; const body=(rows||[]).map(r=>`<tr><td class="mono">${esc(r.roundno)}</td><td class="mono">${esc((r.numbers||[]).join(','))}</td><td class="mono">${esc(r.sum12)}</td><td>${esc(r.bigsmall)} / ${esc(r.oddeven)}</td><td class="mono">${esc((r.dragon_tiger||[]).join(','))}</td></tr>`).join(''); el('recent-table').innerHTML = head + body; }
+function renderPredictionHistory(rows){ const list=Array.isArray(rows)?rows:[]; const head='<tr><th>目标期号</th><th>基准期号</th><th>状态</th><th>命中</th><th>位置</th><th>冠亚和</th><th>龙虎</th><th>更新时间</th></tr>'; const body=list.map(r=>{ const done=!!r.evaluated_at; const hit=Number(r.rank_hits||0)+Number(r.sum_hits||0)+Number(r.dragon_hits||0); const total=Number(r.accuracy_possible||0)||17; return `<tr><td class="mono">${esc(r.target_roundno||'-')}</td><td class="mono">${esc(r.based_on_roundno||'-')}</td><td>${done?'<span class="tag good">已回测</span>':'<span class="tag warn">待回测</span>'}</td><td class="mono">${esc(hit)}/${esc(total)}</td><td class="mono">${esc(Number(r.rank_hits||0))}/${esc(Number(r.rank_possible||0)||10)}</td><td class="mono">${esc(Number(r.sum_hits||0))}/${esc(Number(r.sum_possible||0)||2)}</td><td class="mono">${esc(Number(r.dragon_hits||0))}/${esc(Number(r.dragon_possible||0)||5)}</td><td class="mono">${esc(r.evaluated_at||r.generated_at||'-')}</td></tr>`; }).join(''); el('prediction-history-table').innerHTML = head + body; const evaluated=list.filter(r=>r.evaluated_at).length; const hitTotal=list.reduce((a,r)=>a+Number(r.accuracy_total||0),0); const hitPossible=list.reduce((a,r)=>a+Number(r.accuracy_possible||0),0); const rankHits=list.reduce((a,r)=>a+Number(r.rank_hits||0),0); const rankPossible=list.reduce((a,r)=>a+Number(r.rank_possible||0),0); const rankRate=rankPossible?(rankHits/rankPossible)*100:0; const overallRate=hitPossible?(hitTotal/hitPossible)*100:0; el('prediction-100-summary').innerHTML=[['记录总数',list.length,'近 100 期实验回测'],['已回测',evaluated,'已完成回测'],['整体命中率',`${overallRate.toFixed(1)}%`,'accuracy_total / accuracy_possible'],['位置命中率',`${rankRate.toFixed(1)}%`,'rank_hits / rank_possible']].map(([k,v,d])=>`<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d||''))}</div></div>`).join(''); el('hitrate-100').innerHTML=[metricCard('位置命中率',`${rankRate.toFixed(1)}%`,'近 100 期 rank_hits / rank_possible'),metricCard('整体命中率',`${overallRate.toFixed(1)}%`,'近 100 期 accuracy_total / accuracy_possible'),metricCard('已回测',evaluated,'已完成回测条数'),metricCard('记录总数',list.length,'近 100 期实验记录')].join(''); }
+function renderModel(card){ return `<div class="model-card"><h3>${esc(card.name||'-')} <span class="mono">${esc(card.tag||'')}</span></h3><div class="small">${esc(card.desc||'')}</div><div class="tag-row" style="margin-top:10px;">${(card.tags||[]).map(t=>`<span class="tag ${t.kind||''}">${esc(t.text)}</span>`).join('')}</div><div class="small" style="margin-top:10px;">${esc(card.note||'')}</div></div>`; }
+function renderPred(pred){ const top3=(pred?.top3||[]).map(x=>`<div class="item"><h3>${esc(x.label||'-')} <span class="mono">${Number(x.score||0).toFixed(4)}</span></h3><div class="mono">${esc((x.top3||[]).join(' / ')||'-')}</div><div class="small">${esc(x.note||'')}</div></div>`).join(''); const side=pred?.side||{}; return `<div class="list">${top3 || '<div class="item"><h3>暂无预测</h3><div class="small">模型未产出结果</div></div>'}<div class="item"><h3>冠亚和</h3><div class="mono">${esc(side.sum?.bigsmall||'-')} / ${esc(side.sum?.oddeven||'-')}</div></div><div class="item"><h3>冠亚 / 龙虎</h3><div class="mono">${esc((side.rankCategories||[]).map(x=>`${x.label}:${x.value}`).join(' | ')||'-')}</div><div class="small">${esc((side.dragonTiger||[]).map(x=>`${x.label}:${x.value}`).join(' | ')||'-')}</div></div></div>`; }
+function renderModelButtons(){ return MODEL_KEYS.map((key) => {
+  const active = key === selectedModelKey;
+  const label = key === 'ensemble' ? 'ensemble' : key;
+  return `<button onclick="setSelectedModelKey('${key}')" class="tag ${active ? 'good' : ''}" style="border:none;cursor:pointer;">${esc(label)}</button>`;
+}).join(''); }
+function renderModelRows(rows){ return (rows || []).map((row, idx) => `<div class="item"><h3>第${idx + 1}名 <span class="mono">${Number(row?.score || 0).toFixed(4)}</span></h3><div class="mono">${esc((row?.top3 || []).join(' / ') || '-')}</div><div class="small">${esc(row?.note || '')}</div></div>`).join(''); }
+function renderSelectedModelPanel(t){
+  if (selectedModelKey === 'ensemble') {
+    return `<div class="list"><div class="item"><h3>融合结果</h3><div class="small">当前展示的是 ensemble 总输出；可切换到单模型查看独立输出。</div></div>${renderPred(t.current)}<div class="item"><h3>下期融合</h3><div class="small">同样使用当前序列模型融合结果。</div></div>${renderPred(t.next)}</div>`;
+  }
+  const rows = t.models?.[selectedModelKey] || [];
+  return `<div class="list"><div class="item"><h3>${esc(selectedModelKey)} 独立输出</h3><div class="small">显示该模型在 10 个位置上的 Top3 候选。</div></div>${renderModelRows(rows)}</div>`;
+}
+function renderModelMatrix(t){
+  const rows = Array.from({ length: 10 }, (_, i) => i + 1).map((pos) => {
+    const cells = MODEL_KEYS.slice(1).map((key) => {
+      const row = (t.models?.[key] || [])[pos - 1] || null;
+      return `<td><div class="mono">${esc((row?.top3 || []).join(' / ') || '-')}</div><div class="small">${esc(Number(row?.score || 0).toFixed(4))} / ${esc(Number(row?.confidence || 0).toFixed(4))}</div></td>`;
+    }).join('');
+    return `<tr><td class="mono">第${pos}名</td>${cells}</tr>`;
+  }).join('');
+  el('model-matrix').innerHTML = '<tr><th>位置</th><th>frequency</th><th>markov</th><th>xgboost</th><th>lstm</th></tr>' + rows;
+}
+function renderModelRanking(t){
+  const rows = Array.isArray(t.modelRanking) ? t.modelRanking : [];
+  const head = '<tr><th>模型</th><th>样本</th><th>总机会</th><th>Top1</th><th>Top3</th><th>Top1率</th><th>Top3率</th></tr>';
+  const body = rows.map(r => `<tr><td class="mono">${esc(r.label || r.key || '-')}</td><td class="mono">${esc(r.samples || 0)}</td><td class="mono">${esc(r.possible || 0)}</td><td class="mono">${esc(r.top1Hits || 0)}</td><td class="mono">${esc(r.top3Hits || 0)}</td><td class="mono">${esc(Number(r.top1Rate || 0).toFixed(2))}%</td><td class="mono">${esc(Number(r.top3Rate || 0).toFixed(2))}%</td></tr>`).join('');
+  el('model-ranking-table').innerHTML = head + body;
+}
+
+function versionScore(r){
+  return Number(r?.testTop3 || 0) * 1000 + Number(r?.testTop1 || 0) * 10 + Number(r?.averageTop3 || 0);
+}
+function renderModelHistory(t){
+  const rows = (Array.isArray(t.modelHistory) ? t.modelHistory : []).slice().sort((a, b) => versionScore(b) - versionScore(a));
+  const head = '<tr><th>提交</th><th>日期</th><th>信息</th><th>版本</th><th>训练来源</th><th>样本</th><th>验证Top1</th><th>验证Top3</th><th>测试Top1</th><th>测试Top3</th></tr>';
+  const body = rows.map(r => `<tr><td class="mono">${esc(r.commit || '-')}</td><td class="mono">${esc((r.date || '-').slice(0, 19).replace('T',' '))}</td><td>${esc(r.message || '-')}</td><td class="mono">${esc(r.version || '-')}</td><td class="mono">${esc(r.trainingSource || '-')}</td><td class="mono">${esc(r.sourceRows || 0)}</td><td class="mono">${esc(Number(r.averageTop1 || 0).toFixed(2))}%</td><td class="mono">${esc(Number(r.averageTop3 || 0).toFixed(2))}%</td><td class="mono">${esc(Number(r.testTop1 || 0).toFixed(2))}%</td><td class="mono">${esc(Number(r.testTop3 || 0).toFixed(2))}%</td></tr>`).join('');
+  el('model-history-table').innerHTML = head + body;
+}
+function renderBestVersion(t){
+  const rows = Array.isArray(t.modelHistory) ? t.modelHistory : [];
+  const best = rows.slice().sort((a, b) => versionScore(b) - versionScore(a))[0] || null;
+  if (!best) {
+    el('best-version-box').innerHTML = '<div class="item"><h3>暂无历史版本</h3><div class="small">还没有可比较的训练产物。</div></div>';
+    return;
+  }
+  el('best-version-box').innerHTML = `
+    <div class="item">
+      <h3>当前最优版本</h3>
+      <div class="mono">${esc(best.commit || '-')} · ${esc((best.date || '-').slice(0, 19).replace('T',' '))}</div>
+      <div class="small">${esc(best.message || '-')}</div>
+    </div>
+    <div class="item"><h3>成绩摘要</h3><div class="mono">验证 ${esc(Number(best.averageTop1 || 0).toFixed(2))}% / ${esc(Number(best.averageTop3 || 0).toFixed(2))}%</div><div class="mono">测试 ${esc(Number(best.testTop1 || 0).toFixed(2))}% / ${esc(Number(best.testTop3 || 0).toFixed(2))}%</div></div>
+    <div class="item"><h3>训练信息</h3><div class="mono">${esc(best.trainingSource || '-')} · ${esc(best.sourceRows || 0)} 样本</div><div class="small">${esc(best.version || '-')} · ${esc(best.name || '-')}</div></div>
+  `;
+}
+function renderCurrentPage(){
+  const t = bootstrapSummary || window.__TIMESEQ_DEEP_DATA__ || null;
+  if (!t) return;
+  const stats100=t.prediction100Stats||{};
+  el('stats').innerHTML=[['最新期号',t.latestRoundno||'-',t.latestTime||''],['模型名称',t.name||'-',t.tag||''],['训练窗口',t.historyWindow||0,'近历史样本窗口'],['来源分布',(t.sourceCounts||[]).map(x=>`${x.source}:${x.c}`).join(' / ')||'-','csv / history / live']].map(([k,v,d])=>`<div class="card"><div class="k">${esc(k)}</div><div class="v">${esc(String(v))}</div><div class="small">${esc(String(d||''))}</div></div>`).join(''); el('training-grid').innerHTML=[{name:'训练摘要',tag:t.training?.name||'-',desc:t.training?.featureText||'-',tags:[{text:t.training?.trainingSource||'unknown',kind:'good'},{text:`样本 ${t.training?.sourceRows||0}`}],note:t.training?.note||'暂无'},{name:'验证表现',tag:t.training?.version||'-',desc:`验证 top1 ${Number(t.training?.averageTop1||0).toFixed(2)}% / top3 ${Number(t.training?.averageTop3||0).toFixed(2)}%`,tags:[{text:`测试 top1 ${Number(t.training?.testTop1||0).toFixed(2)}%`,kind:'warn'},{text:`测试 top3 ${Number(t.training?.testTop3||0).toFixed(2)}%`,kind:'good'}],note:t.training?.trainingTotalsText||''},{name:'配置摘要',tag:`blend ${Number(t.training?.blend||0).toFixed(2)}`,desc:`窗口 ${t.training?.lookback||0} / 位置 ${t.training?.positions||0}`,tags:[{text:'离线训练',kind:'good'},{text:'独立页面',kind:'warn'}],note:t.training?.sourceBreakdownText||''}].map(renderModel).join(''); el('model-grid').innerHTML=[{name:'频率基准+',tag:'frequency+',desc:'更强的保底特征',tags:[{text:'稳定',kind:'good'},{text:'低波动'}],note:'实验模型'},{name:'马尔科夫链+',tag:'markov+',desc:'增强转移矩阵和窗口',tags:[{text:'序列',kind:'warn'},{text:'转移'}],note:'实验模型'},{name:'XGBoost+',tag:'xgboost+',desc:'独立特征工程 / 离线训练',tags:[{text:'特征',kind:'good'},{text:'融合'}],note:'需要 Python 离线训练'},{name:'LSTM+',tag:'lstm+',desc:'时序窗口深度模型',tags:[{text:'深度学习',kind:'warn'},{text:'序列'}],note:'需要 Python 离线训练'}].map(renderModel).join(''); el('current-pred').innerHTML = renderPred(t.current); el('next-pred').innerHTML = renderPred(t.next); el('summary-list').innerHTML=[['模型说明',t.note||'-','独立实验页，不接管主模型'],['训练窗口',t.historyWindow||0,'当前使用历史样本数'],['运行状态',t.enabled?'已启用':'未启用','独立旁路'],['最近更新',t.latestTime||'-','自动刷新'],['近 100 期回测',stats100.evaluated||0,'只统计已回测记录']].map(([k,v,d])=>`<div class="item"><h3>${esc(k)}</h3><div class="mono">${esc(String(v))}</div><div class="small">${esc(String(d||''))}</div></div>`).join(''); renderRecent(t.recent30||[]); renderPredictionHistory(t.predictionHistory||[]); el('model-switch').innerHTML = renderModelButtons(); el('selected-model-view').innerHTML = renderSelectedModelPanel(t); renderModelRanking(t); renderBestVersion(t); renderModelHistory(t); renderModelMatrix(t); const status=el('refresh-status'); if(status) status.textContent='已刷新 '+new Date().toLocaleTimeString('zh-CN',{hour12:false}); }
+async function refresh(){ try{ const data = bootstrapSummary || await api('/api/timeseq-deep'); bootstrapSummary = null; window.__TIMESEQ_DEEP_DATA__ = data || {}; renderCurrentPage(); }catch(err){ console.error('[timeseq deep refresh]', err); const status=el('refresh-status'); if(status) status.textContent='数据刷新失败，自动重试中'; } }
+refresh(); setInterval(refresh, 10000); window.addEventListener('focus', refresh); document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refresh(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>xv1 监控</title>
+  <style>
+    :root { --bg:#07111f; --card:#101a31; --text:#eef2ff; --muted:#9aa6c3; --good:#4ade80; --warn:#fbbf24; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:linear-gradient(180deg, #050816, #07111f 30%, #04060f); color:var(--text); }
+    header { padding:20px 24px 12px; position:sticky; top:0; z-index:5; background:rgba(5,8,22,.88); backdrop-filter: blur(10px); border-bottom:1px solid rgba(255,255,255,.08); }
+    h1 { margin:0 0 8px; font-size:22px; }
+    .sub { color:var(--muted); font-size:13px; display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+    .nav { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .nav a { color:#dbe5ff; text-decoration:none; padding:7px 12px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); }
+    .nav a.primary { background:rgba(74,222,128,.14); border-color:rgba(74,222,128,.28); color:#bbf7d0; }
+    main { max-width:1300px; margin:0 auto; padding:18px; }
+    .grid { display:grid; gap:14px; }
+    .four { grid-template-columns:repeat(4,minmax(0,1fr)); }
+    .two { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .card { background:linear-gradient(180deg, rgba(18,26,51,.96), rgba(10,16,31,.96)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:16px; box-shadow:0 12px 50px rgba(0,0,0,.22); }
+    .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .value { margin-top:8px; font-size:24px; font-weight:800; font-variant-numeric:tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .small { color:var(--muted); font-size:13px; line-height:1.6; }
+    .pill { display:inline-flex; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,.06); color:#dbe5ff; margin:0 6px 6px 0; }
+    .pill.good { background:rgba(74,222,128,.12); color:#bbf7d0; }
+    .pill.warn { background:rgba(251,191,36,.12); color:#fde68a; }
+    .line { display:flex; justify-content:space-between; gap:10px; margin:8px 0; font-size:13px; }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .top3-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; }
+    .pos { padding:10px; border-radius:12px; background:rgba(255,255,255,.045); }
+    .pos h3 { margin:0 0 8px; font-size:14px; }
+    @media (max-width: 1000px) { .four,.two,.top3-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>xv1 监控</h1>
+  <div class="sub"><span>3001 独立服务 · 真实模型数据监控</span><span id="refresh-status">已加载</span></div>
+  <div class="nav">
+    <a href="/">新首页</a>
+    <a href="/overview">总览</a>
+    <a href="/monitor" class="primary">监控</a>
+    <a href="/predictions">预测</a>
+    <a href="/gpt55-bypass">GPT5.5旁路v2</a>
+    <a href="/gpt55-bypass-v3">GPT5.5旁路v3</a>
+    <a href="/modules">模块</a>
+  </div>
+</header>
+<main>
+  <div class="grid four" id="status-grid"></div>
+  <div class="grid four" style="margin-top:14px;" id="metric-grid"></div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 style="margin-top:0;">数据接入状态</h2>
+      <div id="data-state"></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0;">回测与稳定性</h2>
+      <div id="stability-state"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 style="margin-top:0;">当前/下期 Top3 输出</h2>
+    <div class="grid two">
+      <div><h3>当前期</h3><div class="top3-grid" id="current-top3"></div></div>
+      <div><h3>下期</h3><div class="top3-grid" id="next-top3"></div></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 style="margin-top:0;">分层模型状态</h2>
+    <div id="layer-state"></div>
+  </div>
+</main>
+<script>
+  (function () {
+    const data = window.__XV1_SUMMARY__ || {};
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const el = (id) => document.getElementById(id);
+    const xv1Data = data.data || {};
+    const pred = data.predictions || {};
+    const metrics = pred.metrics || {};
+    const stability = metrics.stability || {};
+
+    const card = (k,v,d) => `<div class="card"><div class="label">${esc(k)}</div><div class="value">${esc(v)}</div><div class="small">${esc(d || '')}</div></div>`;
+    el('status-grid').innerHTML = [
+      card('服务状态', data.status || '-', 'xv1 独立 3001'),
+      card('最新期号', data.latest_roundno || '-', data.latest_time || ''),
+      card('下期目标', data.next_roundno || '-', '融合 Top3 目标'),
+      card('模型', data.model_status?.name || '-', data.model_status?.version || '-'),
+    ].join('');
+    el('metric-grid').innerHTML = (data.metrics || []).map((m) => card(m.name, m.value, m.desc)).join('');
+
+    el('data-state').innerHTML = [
+      ['draw 总数', xv1Data.draw_total ?? '-', (xv1Data.draw_sources || []).map((x) => `${x.source}:${x.c}`).join(' / ') || '-'],
+      ['predictions 回测', xv1Data.predictions_total ?? '-', `rank ${xv1Data.predictions_rank || '-'} · overall ${xv1Data.predictions_overall || '-'}`],
+      ['timeseq 回测', xv1Data.timeseq_total ?? '-', `rank ${xv1Data.timeseq_rank || '-'} · overall ${xv1Data.timeseq_overall || '-'}`],
+      ['最后回测期号', xv1Data.latest_timeseq_prediction?.target_roundno || '-', xv1Data.latest_timeseq_prediction?.evaluated_at || '-'],
+    ].map(([k,v,d]) => `<div class="line"><span><b>${esc(k)}</b></span><span class="mono">${esc(v)}</span></div><div class="small">${esc(d)}</div>`).join('');
+
+    el('stability-state').innerHTML = [
+      ['样本', metrics.samples ?? '-', `possible ${metrics.possible ?? '-'}`],
+      ['Top1', `${metrics.top1Rate ?? '-'}%`, `${metrics.top1Hits ?? '-'}/${metrics.possible ?? '-'}`],
+      ['Top3', `${metrics.top3Rate ?? '-'}%`, `${metrics.top3Hits ?? '-'}/${metrics.possible ?? '-'}`],
+      ['连续命中', `${stability.currentHitStreak ?? '-'}/${stability.bestHitStreak ?? '-'}`, `连续未中 ${stability.currentMissStreak ?? '-'}/${stability.bestMissStreak ?? '-'}`],
+    ].map(([k,v,d]) => `<div class="line"><span><b>${esc(k)}</b></span><span class="mono">${esc(v)}</span></div><div class="small">${esc(d)}</div>`).join('');
+
+    const renderTop3 = (rows) => (rows || []).slice(0,10).map((r) => `<div class="pos"><h3>${esc(r.label)}</h3><div class="mono">${esc((r.top3 || []).join(' / '))}</div><div class="small">score ${esc(r.score ?? '-')} · conf ${esc(r.confidence ?? '-')}</div></div>`).join('') || '<div class="pos"><h3>暂无</h3><div class="small">无输出</div></div>';
+    el('current-top3').innerHTML = renderTop3(pred.current?.top3 || []);
+    el('next-top3').innerHTML = renderTop3(pred.next?.top3 || []);
+
+    el('layer-state').innerHTML = (data.layers || []).map((layer) => `<div class="line"><span><b>${esc(layer.name)}</b> · ${esc(layer.desc)}<div class="small">${esc(layer.detail || '')}</div></span><span class="mono">${esc(layer.status)}</span></div>`).join('');
+  })();
+</script>
+</body>
+</html>

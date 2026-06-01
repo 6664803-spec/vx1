@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>xv1 概览</title>
+  <style>
+    :root { --bg:#07111f; --card:#101a31; --text:#eef2ff; --muted:#9aa6c3; --good:#4ade80; --warn:#fbbf24; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:linear-gradient(180deg, #050816, #07111f 30%, #04060f); color:var(--text); }
+    header { padding:20px 24px 12px; position:sticky; top:0; z-index:5; background:rgba(5,8,22,.88); backdrop-filter: blur(10px); border-bottom:1px solid rgba(255,255,255,.08); }
+    h1 { margin:0 0 8px; font-size:22px; }
+    .sub { color:var(--muted); font-size:13px; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .nav { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .nav a { color:#dbe5ff; text-decoration:none; padding:7px 12px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); }
+    .nav a.primary { background:rgba(74,222,128,.14); border-color:rgba(74,222,128,.28); color:#bbf7d0; }
+    main { max-width:1300px; margin:0 auto; padding:18px; }
+    .grid { display:grid; gap:14px; }
+    .four { grid-template-columns: repeat(4, minmax(0,1fr)); }
+    .two { grid-template-columns: 1.15fr .85fr; }
+    .card { background:linear-gradient(180deg, rgba(18,26,51,.96), rgba(10,16,31,.96)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:16px; box-shadow:0 12px 50px rgba(0,0,0,.22); }
+    .metric .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .metric .value { margin-top:8px; font-size:28px; font-weight:800; font-variant-numeric:tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .metric .sub { margin-top:6px; color:var(--muted); font-size:12px; line-height:1.4; }
+    .section-title { margin:0 0 10px; font-size:16px; }
+    .pill { display:inline-flex; padding:4px 8px; border-radius:999px; background:rgba(255,255,255,.06); margin:0 6px 6px 0; color:#dbe5ff; font-size:12px; }
+    .pill.good { background:rgba(74,222,128,.12); color:#bbf7d0; }
+    .pill.warn { background:rgba(251,191,36,.12); color:#fde68a; }
+    .small { color:var(--muted); font-size:13px; line-height:1.6; }
+    .line { display:flex; justify-content:space-between; gap:10px; margin:8px 0; font-size:13px; }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    @media (max-width: 1100px) { .four, .two { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>xv1 概览</h1>
+  <div class="sub"><span>独立重建总览页：只展示新结构，不混旧站内容</span><span id="refresh-status">已加载</span></div>
+  <div class="nav">
+    <a href="/">新首页</a>
+    <a href="/overview" class="primary">总览</a>
+    <a href="/monitor">监控</a>
+    <a href="/predictions">预测</a>
+    <a href="/gpt55-bypass">GPT5.5旁路v2</a>
+    <a href="/gpt55-bypass-v3">GPT5.5旁路v3</a>
+    <a href="/modules">模块</a>
+  </div>
+</header>
+<main>
+  <div class="grid four" id="stats">
+    <div class="card metric"><div class="label">当前期</div><div class="value" id="current-roundno">-</div><div class="sub">当前计算中的目标期号</div></div>
+    <div class="card metric"><div class="label">最新期</div><div class="value" id="latest-roundno">-</div><div class="sub">最新已知开奖期号</div></div>
+    <div class="card metric"><div class="label">最终 Top3</div><div class="value" id="fusion-top3">-</div><div class="sub">融合后的最终输出</div></div>
+    <div class="card metric"><div class="label">系统状态</div><div class="value" id="model-status">-</div><div class="sub">模型与数据健康状态</div></div>
+  </div>
+
+  <div class="grid four" style="margin-top:14px;" id="metric-grid"></div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">数据接入</h2>
+      <div class="small">这里放 xv1 当前真正接入的数据状态：主库 draw、回测结果、模型行数、最后回测期号。</div>
+      <div style="margin-top:10px;" id="data-card"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">验证口径</h2>
+      <div class="small">使用 API 最新一期作为验证真值；训练只用验证期之前的数据，按 walk-forward 方式滚动回测。</div>
+      <div style="margin-top:10px;" id="validation-card"></div>
+    </div>
+  </div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">健康检查</h2>
+      <div class="small">这里用于显示缺号、重复、乱序、补漏一致性等检查结果。</div>
+      <div style="margin-top:10px;" id="health-pills"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">分层数据状态</h2>
+      <div class="small">规则 / 统计 / 序列 / 融合 的结果将逐层写入独立数据结构，而不是只靠页面文案。</div>
+      <div style="margin-top:10px;" id="layer-data-card"></div>
+    </div>
+  </div>
+
+  <div class="grid two" style="margin-top:14px;">
+    <div class="card">
+      <h2 class="section-title">分层输出</h2>
+      <div id="layer-summary"></div>
+    </div>
+    <div class="card">
+      <h2 class="section-title">重新设计蓝图</h2>
+      <div class="small">按位置拆分、每位置 Top3、规则起步、带时间衰减、滚动回测、分层展示。</div>
+      <div style="margin-top:10px;" id="blueprint-list"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 class="section-title">模型接入状态</h2>
+    <div class="small">当前 xv1 已切到独立模型摘要，不再沿用旧的 csv+history 训练展示。</div>
+    <div style="margin-top:10px;" id="model-card"></div>
+  </div>
+
+  <div class="card" style="margin-top:14px;">
+    <h2 class="section-title">页面与模块说明</h2>
+    <div class="small">下面是 xv1 当前的独立页面与分层结构，后续只在这条新链路里扩展。</div>
+    <div style="margin-top:10px;" id="page-summary"></div>
+    <div style="margin-top:12px;" id="training-summary"></div>
+    <div style="margin-top:12px;" id="trend-summary"></div>
+  </div>
+</main>
+<script>
+  (function () {
+    const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const formatTop3Value = (top3) => {
+      if (!Array.isArray(top3) || !top3.length) return top3 ? String(top3) : '-';
+      return top3.map((item) => {
+        if (item && typeof item === 'object') {
+          const label = item.label || item.position || item.name || '';
+          const nums = Array.isArray(item.top3) ? item.top3.join('/') : (Array.isArray(item.values) ? item.values.join('/') : (item.value ?? ''));
+          return label ? `${label}:${nums || '-'}` : String(nums || '-');
+        }
+        return String(item);
+      }).join(' ｜ ');
+    };
+    const data = window.__XV1_SUMMARY__ || {};
+    const byId = (id) => document.getElementById(id);
+    const stats = data;
+    if (stats.current_roundno) byId('current-roundno').textContent = stats.current_roundno;
+    if (stats.latest_roundno) byId('latest-roundno').textContent = stats.latest_roundno;
+    if (stats.fusion?.top3) byId('fusion-top3').textContent = formatTop3Value(stats.fusion.top3);
+    if (stats.model_status) byId('model-status').textContent = stats.model_status.enabled ? (stats.model_status.name || 'enabled') : 'rebuilding';
+
+    const metrics = stats.metrics || [];
+    byId('metric-grid').innerHTML = metrics.map((m) => '<div class="card metric"><div class="label">' + m.name + '</div><div class="value">' + m.value + '</div><div class="sub">' + m.desc + '</div></div>').join('');
+
+    const validation = stats.validation || {};
+    const validationLines = [
+      ['验证模式', validation.mode || '-'],
+      ['验证地址', validation.source_url || '-'],
+      ['切分规则', validation.split_rule || '-'],
+      ['刷新策略', validation.refresh_policy || '-'],
+      ['说明', validation.description || '-'],
+    ];
+    byId('validation-card').innerHTML = validationLines.map(([k, v]) => '<div class="line"><span><b>' + k + '</b></span><span class="mono">' + v + '</span></div>').join('');
+
+    const xv1Data = stats.data || {};
+    const dataLines = [
+      ['draw 总数', xv1Data.draw_total ?? '-', '主库当前总开奖条数'],
+      ['draw 来源', (xv1Data.draw_sources || []).map((x) => `${x.source}:${x.c}`).join(' / ') || '-', 'csv / history / live'],
+      ['predictions', xv1Data.predictions_total ?? '-', `rank ${xv1Data.predictions_rank || '-'} | overall ${xv1Data.predictions_overall || '-'}`],
+      ['timeseq_predictions', xv1Data.timeseq_total ?? '-', `rank ${xv1Data.timeseq_rank || '-'} | overall ${xv1Data.timeseq_overall || '-'}`],
+      ['xv1 模型行数', xv1Data.xv1_model_rows ?? '-', xv1Data.xv1_model_version || '-'],
+    ];
+    byId('data-card').innerHTML = dataLines.map(([k, v, d]) => '<div class="line"><span><b>' + k + '</b></span><span class="mono">' + v + '</span></div><div class="small">' + d + '</div>').join('');
+
+    const health = stats.health || {};
+    byId('health-pills').innerHTML = Object.entries(health).map(([k, v]) => '<span class="pill ' + (v ? 'good' : 'warn') + '">' + k + ': ' + (v ? 'OK' : 'WAIT') + '</span>').join(' ');
+
+    const layers = stats.layers || [];
+    byId('layer-summary').innerHTML = layers.map((layer) => '<div class="line"><span><b>' + layer.name + '</b> · ' + layer.desc + '<div class="small" style="margin-top:4px;">输出：' + (layer.output || '-') + ' · ' + (layer.detail || '-') + '</div></span><span class="mono">' + layer.status + '</span></div>').join('');
+    byId('layer-data-card').innerHTML = layers.map((layer) => '<div class="line"><span><b>' + layer.name + '</b></span><span class="mono">' + (layer.output || '-') + '</span></div>').join('');
+
+    const blueprint = stats.blueprint || {};
+    byId('blueprint-list').innerHTML = '<div class="line"><span><b>' + (blueprint.title || '重新设计规格') + '</b></span><span class="mono">Spec</span></div>' + (blueprint.items || []).map((item) => '<div class="line"><span>' + item + '</span><span class="mono">OK</span></div>').join('');
+
+    const pages = stats.pages || [];
+    const notes = stats.notes || [];
+    const training = stats.training || {};
+    const modelLines = [
+      ['模型名称', training.name || 'xv1-timeseq-only-v1'],
+      ['模型版本', training.version || 'timeseq_predictions-only-1620'],
+      ['训练来源', training.sourceText || '只使用 timeseq_predictions 1620 条进行训练'],
+      ['训练行数', training.rows || 1620],
+      ['最新期号', (training.rounds && training.rounds.max) || '20260601001'],
+      ['隔离', (training.isolation !== false) ? 'ON' : 'OFF'],
+    ];
+    byId('model-card').innerHTML = modelLines.map(([k, v]) => '<div class="line"><span><b>' + k + '</b></span><span class="mono">' + v + '</span></div>').join('');
+    byId('page-summary').innerHTML = '<div class="line"><span><b>页面</b></span><span class="mono">' + pages.map((p) => p.path).join('  ') + '</span></div>' + '<div class="small" style="margin-top:8px;">' + pages.map((p) => p.label).join(' · ') + '</div>' + '<div style="margin-top:10px;">' + notes.map((n) => '<span class="pill">' + n + '</span>').join(' ') + '</div>';
+    byId('training-summary').innerHTML = '<div class="line"><span>训练来源</span><span class="mono">' + (training.sourceText || 'timeseq_predictions only') + '</span></div>' + '<div class="line"><span>训练行数</span><span class="mono">' + (training.rows || 1620) + '</span></div>' + '<div class="line"><span>最新期号</span><span class="mono">' + ((training.rounds && training.rounds.max) || '20260601001') + '</span></div>' + '<div class="line"><span>隔离</span><span class="mono">' + ((training.isolation !== false) ? 'ON' : 'OFF') + '</span></div>';
+
+    const fusion = stats.fusion || {};
+    byId('trend-summary').innerHTML = '<div class="line"><span>融合策略</span><span class="mono">' + esc(fusion.reason || '-') + '</span></div>' + '<div class="line"><span>Top3</span><span class="mono">' + esc(formatTop3Value(fusion.top3)) + '</span></div>';
+  })();
+</script>
+</body>
+</html>

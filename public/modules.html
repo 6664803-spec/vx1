@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <title>模块列表 - 幸运飞艇实时监控</title>
+  <style>
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#08101f; color:#eef2ff; }
+    header { padding:22px 24px; background:rgba(7,11,22,.86); border-bottom:1px solid rgba(255,255,255,.08); position:sticky; top:0; backdrop-filter: blur(10px); }
+    h1 { margin:0 0 8px; font-size:24px; }
+    .sub { color:#9aa6c3; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    .nav { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .nav a { color:#dbe5ff; text-decoration:none; padding:7px 12px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); }
+    .nav a:hover { text-decoration:none; background:rgba(105,169,255,.15); border-color:rgba(105,169,255,.28); }
+    .nav a.primary { background:rgba(74,222,128,.14); border-color:rgba(74,222,128,.28); color:#bbf7d0; }
+    main { max-width:1200px; margin:0 auto; padding:20px 18px 36px; }
+    .grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:14px; }
+    .grid-3 { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:14px; }
+    .grid-4 { display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:14px; }
+    .card { background:linear-gradient(180deg, rgba(18,26,51,.96), rgba(10,16,31,.96)); border:1px solid rgba(255,255,255,.08); border-radius:16px; padding:16px; }
+    .tag { display:inline-block; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,.06); margin:0 6px 8px 0; font-size:12px; }
+    h2 { margin:0 0 10px; font-size:17px; }
+    ul { margin:8px 0 0 20px; padding:0; color:#cfd6ea; }
+    li { margin:6px 0; }
+    a { color:#9ad0ff; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .muted { color:#9aa6c3; }
+    .banner { grid-column:1 / -1; }
+    .status-row { display:flex; flex-wrap:wrap; gap:10px; margin-top:8px; }
+    .status-chip { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); }
+    .status-chip strong { color:#fff; }
+    .k { color:#9aa6c3; }
+    .metric-card { padding:14px; }
+    .metric-label { color:#9aa6c3; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+    .metric-value { margin-top:8px; font-size:28px; font-weight:700; font-variant-numeric:tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .metric-sub { margin-top:6px; color:#9aa6c3; font-size:12px; }
+    .bar-wrap { margin-top:10px; }
+    .bar { height:10px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; }
+    .fill { height:100%; border-radius:999px; background:linear-gradient(90deg, #4f8cff, #34d399); }
+    .compare-grid { display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; }
+    .compare-box { padding:14px; border-radius:14px; background:rgba(255,255,255,.04); }
+    .compare-box h3 { margin:0 0 8px; font-size:14px; }
+    .compare-line { display:flex; justify-content:space-between; gap:10px; margin:8px 0; font-size:13px; color:#dbe5ff; }
+    .compare-line .v { font-variant-numeric:tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .compare-mini { font-size:12px; color:#9aa6c3; line-height:1.5; }
+    .module-table-wrap { overflow:auto; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:8px 10px; border-bottom:1px solid rgba(255,255,255,.07); text-align:left; vertical-align:top; }
+    th { color:#b7c1db; position:sticky; top:0; background:rgba(10,16,31,.96); z-index:1; }
+    .module-row .name { font-weight:700; }
+    .module-row .small { color:#9aa6c3; font-size:12px; margin-top:4px; }
+    @media (max-width: 900px) { .grid, .grid-3, .grid-4, .compare-grid { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>模块列表</h1>
+  <div class="sub">
+    <span>这里列出当前项目所有模块和职责</span>
+    <span id="refresh-status">读取中…</span>
+  </div>
+  <div class="nav">
+    <a href="/">首页总览</a>
+    <a href="/modules" class="primary">模块页</a>
+    <a href="/monitor">实时监控</a>
+    <a href="/observer">旁路观察器</a>
+    <a href="/predictions">往期预测</a>
+  </div>
+</header>
+<main>
+  <div class="grid" id="module-grid">
+    <div class="card banner">
+      <h2>当前同步状态</h2>
+      <div class="muted">用于区分“当前期”和“下期期”，避免把 39 误看成 40。</div>
+      <div class="status-row">
+        <span class="status-chip"><span class="k">最新期号</span><strong id="latest-roundno">-</strong></span>
+        <span class="status-chip"><span class="k">当前预测期</span><strong id="current-roundno">-</strong></span>
+        <span class="status-chip"><span class="k">下期预测期</span><strong id="next-roundno">-</strong></span>
+      </div>
+      <div class="status-row">
+        <span class="status-chip"><span class="k">训练模型</span><strong id="model-enabled">-</strong></span>
+        <span class="status-chip"><span class="k">模型名</span><strong id="model-name">-</strong></span>
+        <span class="status-chip"><span class="k">训练来源</span><strong id="model-source">-</strong></span>
+        <span class="status-chip"><span class="k">来源拆分</span><strong id="model-source-breakdown">-</strong></span>
+        <span class="status-chip"><span class="k">验证 Top1 / Top3</span><strong id="model-acc">-</strong></span>
+        <span class="status-chip"><span class="k">测试 Top1 / Top3</span><strong id="model-test-acc">-</strong></span>
+      </div>
+      <div class="status-row">
+        <span class="status-chip"><span class="k">往期预测记录</span><strong><a href="/predictions">打开查看</a></strong></span>
+        <span class="status-chip"><span class="k">用途</span><strong>回看每期预测生成与回测结果</strong></span>
+      </div>
+    </div>
+
+    <div class="card banner">
+      <h2>模型准确率总览</h2>
+      <div class="muted">把“训练 / 验证 / 测试 / 回测”拆开看，避免只盯一个数字。</div>
+      <div id="accuracy-overview" class="grid-4" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card banner">
+      <h2>模块化对比</h2>
+      <div class="muted">主模型、旁路观察器、回测统计和数据采集的职责一眼看清。</div>
+      <div id="module-compare" class="compare-grid" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card banner">
+      <h2>模块矩阵</h2>
+      <div class="module-table-wrap" style="margin-top:10px;">
+        <table>
+          <thead>
+            <tr><th>模块</th><th>核心职责</th><th>关键指标</th><th>当前状态</th></tr>
+          </thead>
+          <tbody id="module-matrix"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>1) 数据采集模块</h2>
+      <div class="muted">职责：抓取开奖、补历史、去重、持续同步</div>
+      <div>
+        <span class="tag">10 秒轮询</span>
+        <span class="tag">期号去重</span>
+        <span class="tag">断点补数</span>
+        <span class="tag">长期存储</span>
+      </div>
+      <ul>
+        <li>主接口：<code>index.aspx/Chawinning_Two</code></li>
+        <li>历史接口：<code>detail.aspx/GetWinningnohistoryList</code></li>
+        <li>存储：SQLite 单库 <code>data/lottery.db</code></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>2) 预测融合模块</h2>
+      <div class="muted">职责：融合多路信号，输出 1-10 名 Top3</div>
+      <div>
+        <span class="tag">频率</span>
+        <span class="tag">近因</span>
+        <span class="tag">缺口</span>
+        <span class="tag">转移</span>
+      </div>
+      <ul>
+        <li>当前期：<code id="predict-current">-</code></li>
+        <li>下期期：<code id="predict-next">-</code></li>
+        <li>展示分项分数与置信度</li>
+        <li>支持冠亚和、龙虎侧边预测</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>3) 回测统计模块</h2>
+      <div class="muted">职责：开奖后自动比对预测，长期统计命中率</div>
+      <div>
+        <span class="tag">位置命中</span>
+        <span class="tag">冠亚和命中</span>
+        <span class="tag">龙虎命中</span>
+      </div>
+      <ul>
+        <li>分区统计：位置 / 冠亚和 / 龙虎</li>
+        <li>近 30 期历史比对</li>
+        <li>可持续累积总命中数据</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>4) 实时面板模块</h2>
+      <div class="muted">职责：实时查看数据、预测、统计与走势</div>
+      <div>
+        <span class="tag">历史总数</span>
+        <span class="tag">最新期号</span>
+        <span class="tag">预测期号</span>
+        <span class="tag">准确率</span>
+      </div>
+      <ul>
+        <li>首页：<a href="/">实时面板</a></li>
+        <li>模块页：本页</li>
+        <li>独立页：<a href="/monitor">实时监控页</a> / <a href="/observer">旁路观察器</a></li>
+        <li>每 10 秒刷新一次</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>5) 服务守护模块</h2>
+      <div class="muted">职责：开机自启、崩溃重启、日志输出</div>
+      <div>
+        <span class="tag">systemd</span>
+        <span class="tag">自动重启</span>
+        <span class="tag">日志目录</span>
+      </div>
+      <ul>
+        <li>安装脚本：<code>scripts/install-service.sh</code></li>
+        <li>服务单元：<code>systemd/xingchen-lottery.service</code></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>6) 本地记忆模块</h2>
+      <div class="muted">职责：记录偏好、决策和完成项</div>
+      <div>
+        <span class="tag">memory/2026-05-20.md</span>
+        <span class="tag">IDENTITY.md</span>
+        <span class="tag">USER.md</span>
+      </div>
+      <ul>
+        <li>今天做过的事会整理进本地文件记忆</li>
+        <li>后续可继续累计</li>
+      </ul>
+    </div>
+  </div>
+</main>
+<script>
+const api = async (url) => {
+  const res = await fetch(url + (url.includes('?') ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+};
+const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+const esc = (s) => String(s).replace(/[&<>\"]/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]));
+let bootstrapSummary = window.__INITIAL_SUMMARY__ || null;
+window.__INITIAL_SUMMARY__ = null;
+
+const metricCard = (label, value, sub, width) => `
+  <div class="card metric-card">
+    <div class="metric-label">${esc(label)}</div>
+    <div class="metric-value">${esc(String(value))}</div>
+    <div class="bar-wrap"><div class="bar"><div class="fill" style="width:${Math.max(0, Math.min(100, width ?? 0))}%;"></div></div></div>
+    <div class="metric-sub">${esc(String(sub || ''))}</div>
+  </div>`;
+
+const compareBox = (title, items) => `
+  <div class="compare-box">
+    <h3>${esc(title)}</h3>
+    ${items.map(([k, v]) => `<div class="compare-line"><span>${esc(k)}</span><span class="v">${esc(String(v))}</span></div>`).join('')}
+  </div>`;
+
+const moduleRow = (name, desc, metrics, state) => `
+  <tr class="module-row">
+    <td><div class="name">${esc(name)}</div><div class="small">${esc(desc)}</div></td>
+    <td>${esc(metrics)}</td>
+    <td class="mono">${esc(state)}</td>
+    <td>${esc(name.includes('观察器') ? '侧路分析' : '主链路')}</td>
+  </tr>`;
+
+async function refresh() {
+  try {
+    const data = bootstrapSummary || await api('/api/summary');
+    bootstrapSummary = null;
+    const m = data.metrics || {};
+    const o = data.observer || {};
+    const accuracy = Number(String(m.overall_accuracy_text || '0').replace('%', '')) || 0;
+    const vTop1 = Number(m.model_avg_top1 || 0);
+    const vTop3 = Number(m.model_avg_top3 || 0);
+    const tTop1 = Number(m.model_test_top1 || 0);
+    const tTop3 = Number(m.model_test_top3 || 0);
+
+    setText('latest-roundno', m.latest_roundno || '-');
+    setText('current-roundno', m.latest_roundno || '-');
+    setText('next-roundno', m.next_prediction_roundno || '-');
+    setText('predict-current', m.latest_roundno || '-');
+    setText('predict-next', m.next_prediction_roundno || '-');
+    setText('model-enabled', m.model_enabled ? '已启用' : '未启用');
+    setText('model-name', m.model_name || '-');
+    setText('model-source', `${m.model_training_source || '-'}${m.model_training_source_text ? '｜' + m.model_training_source_text : ''}`);
+    setText('model-source-breakdown', m.model_source_breakdown_text || '-');
+    setText('model-acc', `${m.model_avg_top1 ?? 0}% / ${m.model_avg_top3 ?? 0}%`);
+    setText('model-test-acc', `${m.model_test_top1 ?? 0}% / ${m.model_test_top3 ?? 0}%`);
+
+    document.getElementById('accuracy-overview').innerHTML = [
+      metricCard('整体准确率', `${m.overall_accuracy_text || '-'}`, m.split_accuracy_text || '近 30 期回测汇总', accuracy),
+      metricCard('位置命中率', m.position_text || '-', '位置预测命中 / 总位置机会', Math.min(100, Math.max(0, (Number(m.position_text?.split('/')[0]) || 0) * 4))),
+      metricCard('冠亚和命中率', m.sum_text || '-', '冠亚和大/小/单/双', Math.min(100, Math.max(0, (Number(m.sum_text?.split('/')[0]) || 0) * 4))),
+      metricCard('龙虎命中率', m.dragon_text || '-', '龙虎 1-5 命中统计', Math.min(100, Math.max(0, (Number(m.dragon_text?.split('/')[0]) || 0) * 4))),
+      metricCard('验证 Top1', `${vTop1}%`, 'Validation Top1', vTop1),
+      metricCard('验证 Top3', `${vTop3}%`, 'Validation Top3', vTop3),
+      metricCard('测试 Top1', `${tTop1}%`, 'Test Top1', tTop1),
+      metricCard('测试 Top3', `${tTop3}%`, 'Test Top3', tTop3),
+    ].join('');
+
+    document.getElementById('module-compare').innerHTML = [
+      compareBox('主模型', [
+        ['名称', m.model_name || '-'],
+        ['训练来源', m.model_training_source_text || '-'],
+        ['训练总量', m.model_training_totals_text || '-'],
+        ['验证 / 测试', `${m.model_avg_top1 ?? 0}% / ${m.model_avg_top3 ?? 0}%`, `${m.model_test_top1 ?? 0}% / ${m.model_test_top3 ?? 0}%`],
+      ]),
+      compareBox('旁路观察器', [
+        ['标签', o.tag || '-'],
+        ['样本源', (o.sourceCounts || []).map(x => `${x.source}:${x.c}`).join(' / ') || '-'],
+        ['最新期号', o.latestRoundno || '-'],
+        ['用途', '只观察 / 对比 / 试验'],
+      ]),
+    ].join('');
+
+    document.getElementById('module-matrix').innerHTML = [
+      moduleRow('数据采集模块', '抓取开奖、补历史、去重、持续同步', `${m.total_draws || 0} 条 | 10 秒轮询`, '在线'),
+      moduleRow('预测融合模块', '频率 / 近因 / 缺口 / 转移多路融合', `${m.model_name || '-'} | ${m.model_training_source_text || '-'}`, m.model_enabled ? '已启用' : '未启用'),
+      moduleRow('回测统计模块', '开奖后自动比对预测，累计命中率', `${m.overall_accuracy_text || '-'} | ${m.split_accuracy_text || '-'}`, '持续回测'),
+      moduleRow('旁路观察器', '独立观察主链路，不改变预测结果', `${o.enabled ? '已启用' : '未启用'} | ${o.tag || 'shadow'}`, '旁路'),
+      moduleRow('实时面板模块', '首页 / 监控页 / 旁路页统一展示', `Top1 ${m.model_avg_top1 ?? 0}% | Top3 ${m.model_avg_top3 ?? 0}%`, '展示中'),
+      moduleRow('服务守护模块', 'systemd 自启、崩溃重启、日志输出', 'systemd | restart | logs', '守护中'),
+      moduleRow('本地记忆模块', '记录偏好、决策和完成项', 'memory/ | USER.md | IDENTITY.md', '已接入'),
+    ].join('');
+
+    const status = document.getElementById('refresh-status');
+    if (status) status.textContent = '已同步 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+  } catch (err) {
+    const status = document.getElementById('refresh-status');
+    if (status) status.textContent = '同步失败，自动重试中';
+  }
+}
+refresh();
+setInterval(refresh, 10000);
+window.addEventListener('focus', refresh);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>
