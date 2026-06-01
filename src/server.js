@@ -90,6 +90,29 @@ CREATE TABLE IF NOT EXISTS timeseq_predictions (
   evaluated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS gpt55_analyst_predictions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_roundno TEXT NOT NULL UNIQUE,
+  based_on_roundno TEXT,
+  generated_at TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  analysis_json TEXT NOT NULL,
+  top3_json TEXT NOT NULL,
+  reason_json TEXT NOT NULL,
+  risk_json TEXT NOT NULL,
+  actual_json TEXT,
+  compare_json TEXT,
+  top1_hits INTEGER,
+  top3_hits INTEGER,
+  possible INTEGER,
+  top1_rate REAL,
+  top3_rate REAL,
+  evaluated_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_gpt55_analyst_target ON gpt55_analyst_predictions(target_roundno DESC);
+CREATE INDEX IF NOT EXISTS idx_gpt55_analyst_eval ON gpt55_analyst_predictions(evaluated_at DESC);
+
 CREATE TABLE IF NOT EXISTS gpt55_bypass_predictions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   version TEXT NOT NULL,
@@ -1553,6 +1576,123 @@ function getGpt55V3WeightSummary() {
   });
 }
 
+function buildGpt55AnalystPrediction(historyRows, currentPred, bypassV2, bypassV3) {
+  const top3 = [];
+  const reasons = [];
+  const risks = [];
+  const analysis = [];
+  for (let pos = 0; pos < 10; pos++) {
+    const counts = (size) => {
+      const out = {};
+      for (const draw of historyRows.slice(-size)) {
+        const n = parseDrawNumbers(draw).map((x) => String(x).padStart(2, '0'))[pos];
+        if (n) out[n] = (out[n] || 0) + 1;
+      }
+      return out;
+    };
+    const w30 = counts(30), w100 = counts(100), w300 = counts(300);
+    const lastSeen = {};
+    historyRows.forEach((draw, idx) => {
+      const n = parseDrawNumbers(draw).map((x) => String(x).padStart(2, '0'))[pos];
+      if (n) lastSeen[n] = idx;
+    });
+    const votes = {};
+    const add = (num, weight, source) => {
+      const n = String(num).padStart(2, '0');
+      const v = votes[n] || { score: 0, sources: new Set() };
+      v.score += weight;
+      v.sources.add(source);
+      votes[n] = v;
+    };
+    (currentPred?.top3?.[pos]?.top3 || []).forEach((n, i) => add(n, 4 - i, 'main'));
+    (bypassV2?.top3?.[pos]?.top3 || []).forEach((n, i) => add(n, 3.2 - i * 0.7, 'v2'));
+    (bypassV3?.top3?.[pos]?.top3 || []).forEach((n, i) => add(n, 3.4 - i * 0.65, 'v3'));
+    const scored = [];
+    for (let i = 1; i <= 10; i++) {
+      const n = String(i).padStart(2, '0');
+      const hot30 = Number(w30[n] || 0) / 30;
+      const hot100 = Number(w100[n] || 0) / 100;
+      const hot300 = Number(w300[n] || 0) / Math.max(1, Math.min(300, historyRows.length));
+      const gap = lastSeen[n] == null ? historyRows.length : Math.max(0, historyRows.length - 1 - lastSeen[n]);
+      const vote = votes[n]?.score || 0;
+      const sourceCount = votes[n]?.sources?.size || 0;
+      const overHotPenalty = hot30 > hot100 * 1.45 && hot30 > 0.16 ? 0.9 : 0;
+      const recoveryBoost = gap >= 8 && gap <= 26 ? 0.65 : (gap > 26 ? 0.25 : 0);
+      const trendBoost = hot30 > hot100 && hot100 >= hot300 ? 0.35 : 0;
+      const consensusBoost = sourceCount >= 2 ? sourceCount * 0.28 : 0;
+      const score = vote + recoveryBoost + trendBoost + consensusBoost - overHotPenalty;
+      scored.push({ num: n, score: Number(score.toFixed(4)), hot30: Number(hot30.toFixed(4)), hot100: Number(hot100.toFixed(4)), gap, vote: Number(vote.toFixed(4)), sourceCount });
+    }
+    scored.sort((a, b) => b.score - a.score || a.num.localeCompare(b.num));
+    const picks = scored.slice(0, 3).map((x) => x.num);
+    const risk = scored[0]?.score - scored[2]?.score < 0.9 ? '高' : '中';
+    top3.push({ label: `第${pos + 1}名`, top3: picks, score: scored[0]?.score || 0, confidence: Number(Math.min(0.99, (scored[0]?.score || 0) / Math.max(1, scored.slice(0, 3).reduce((a, x) => a + x.score, 0))).toFixed(4)), source: 'gpt55-analyst-v1', note: 'GPT5.5数据分析师v1：历史窗口 + 遗漏 + 热冷 + 主/v2/v3分歧综合分析' });
+    reasons.push({ label: `第${pos + 1}名`, selected: picks, reason: `综合模型票源、热度、遗漏和过热惩罚后选择 ${picks.join('/')}`, topSignals: scored.slice(0, 5) });
+    risks.push({ label: `第${pos + 1}名`, risk, note: risk === '高' ? '候选分差小，波动较高' : '存在一定共识' });
+    analysis.push({ label: `第${pos + 1}名`, signals: scored.slice(0, 10) });
+  }
+  return { top3, reasons, risks, analysis };
+}
+
+function compareAnalystPrediction(targetRoundno, top3Rows) {
+  const actualDraw = getDrawByRound(targetRoundno);
+  const actual = actualDraw ? parseDrawNumbers(actualDraw).map((x) => String(x).padStart(2, '0')) : [];
+  let top1Hits = 0, top3Hits = 0, possible = 0;
+  const compare = (top3Rows || []).map((item, idx) => {
+    const candidates = Array.isArray(item?.top3) ? item.top3.map((x) => String(x).padStart(2, '0')) : [];
+    const actualNo = actual[idx] || null;
+    const top1Hit = !!actualNo && candidates[0] === actualNo;
+    const top3Hit = !!actualNo && candidates.includes(actualNo);
+    if (actualNo && candidates.length) { possible += 1; if (top1Hit) top1Hits += 1; if (top3Hit) top3Hits += 1; }
+    return { label: item?.label || `第${idx + 1}名`, actual: actualNo, top3: candidates, top1Hit, top3Hit };
+  });
+  return { actual, compare, top1Hits, top3Hits, possible: possible || 10 };
+}
+
+function materializeGpt55Analyst(limit = 60) {
+  const rows = timeseqPredictionHistory(limit);
+  const generatedAt = nowIso();
+  const stmt = db.prepare(`
+    INSERT INTO gpt55_analyst_predictions (
+      target_roundno, based_on_roundno, generated_at, model_version,
+      analysis_json, top3_json, reason_json, risk_json,
+      actual_json, compare_json, top1_hits, top3_hits, possible, top1_rate, top3_rate, evaluated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(target_roundno) DO UPDATE SET
+      based_on_roundno=excluded.based_on_roundno, generated_at=excluded.generated_at, model_version=excluded.model_version,
+      analysis_json=excluded.analysis_json, top3_json=excluded.top3_json, reason_json=excluded.reason_json, risk_json=excluded.risk_json,
+      actual_json=excluded.actual_json, compare_json=excluded.compare_json, top1_hits=excluded.top1_hits, top3_hits=excluded.top3_hits,
+      possible=excluded.possible, top1_rate=excluded.top1_rate, top3_rate=excluded.top3_rate, evaluated_at=excluded.evaluated_at
+  `);
+  let written = 0;
+  for (const row of rows) {
+    const baseDraw = getDrawByRound(row.based_on_roundno) || getDrawByRound(String(Number(row.target_roundno || 0) - 1));
+    if (!baseDraw) continue;
+    const hist = db.prepare('SELECT * FROM draws WHERE roundno <= ? ORDER BY roundno DESC LIMIT 360').all(baseDraw.roundno).reverse();
+    const currentPred = { top3: row.top3 || [] };
+    const v2 = { top3: buildGpt55BypassRows(row.top3 || [], row.model || null) };
+    const v3 = { top3: buildGpt55BypassV3Rows(row.top3 || [], row.model || null) };
+    const pred = buildGpt55AnalystPrediction(hist, currentPred, v2, v3);
+    const cmp = compareAnalystPrediction(row.target_roundno, pred.top3);
+    const possible = cmp.possible || 10;
+    stmt.run(String(row.target_roundno || ''), row.based_on_roundno ? String(row.based_on_roundno) : null, generatedAt, 'gpt55-analyst-v1', JSON.stringify(pred.analysis), JSON.stringify(pred.top3), JSON.stringify(pred.reasons), JSON.stringify(pred.risks), JSON.stringify(cmp.actual), JSON.stringify(cmp.compare), cmp.top1Hits, cmp.top3Hits, possible, possible ? (cmp.top1Hits / possible) * 100 : 0, possible ? (cmp.top3Hits / possible) * 100 : 0, row.evaluated_at || null);
+    written += 1;
+  }
+  return { written, generatedAt };
+}
+
+function readGpt55Analyst(limit = 30) {
+  const write = materializeGpt55Analyst(Math.max(60, limit));
+  const rows = db.prepare('SELECT * FROM gpt55_analyst_predictions ORDER BY COALESCE(evaluated_at, generated_at) DESC, target_roundno DESC LIMIT ?').all(Math.max(1, Math.min(300, Number(limit) || 30))).map((row) => ({ ...row, top3: parseJsonSafe(row.top3_json, []), analysis: parseJsonSafe(row.analysis_json, []), reasons: parseJsonSafe(row.reason_json, []), risks: parseJsonSafe(row.risk_json, []), actual: parseJsonSafe(row.actual_json, []), compare: parseJsonSafe(row.compare_json, []) }));
+  const totals = rows.reduce((acc, row) => { acc.samples += row.evaluated_at ? 1 : 0; acc.possible += Number(row.possible || 0); acc.top1Hits += Number(row.top1_hits || 0); acc.top3Hits += Number(row.top3_hits || 0); return acc; }, { samples: 0, possible: 0, top1Hits: 0, top3Hits: 0 });
+  const rate = (hits, total) => total ? Number(((hits / total) * 100).toFixed(2)) : 0;
+  const latestDraw = getLatestDraw();
+  const hist = latestDraw ? db.prepare('SELECT * FROM draws WHERE roundno <= ? ORDER BY roundno DESC LIMIT 360').all(latestDraw.roundno).reverse() : [];
+  const latestHistory = timeseqPredictionHistory(1)[0];
+  const next = latestHistory ? buildGpt55AnalystPrediction(hist, { top3: latestHistory.top3 || [] }, { top3: buildGpt55BypassRows(latestHistory.top3 || [], latestHistory.model || null) }, { top3: buildGpt55BypassV3Rows(latestHistory.top3 || [], latestHistory.model || null) }) : null;
+  return { enabled: true, name: 'GPT5.5 数据分析师 v1', table: 'gpt55_analyst_predictions', mode: 'analyst-shadow', description: '基于历史窗口、遗漏、热冷、主模型/v2/v3分歧生成独立Top3分析；只展示和回测，不接管主链。', lastWrite: write, metrics: { ...totals, top1Rate: rate(totals.top1Hits, totals.possible), top3Rate: rate(totals.top3Hits, totals.possible) }, next, rows };
+}
+
 function materializeGpt55BypassTable(version = 'v2', limit = 60) {
   const normalizedVersion = version === 'v3' ? 'v3' : 'v2';
   const rows = normalizedVersion === 'v3' ? getGpt55BypassV3History(limit) : getGpt55BypassHistory(limit);
@@ -2086,6 +2226,7 @@ function getXv1Summary() {
   const gpt55V3Metrics = getBypassMetricsFromCompare(gpt55V3History);
   const gpt55V3Weights = getGpt55V3WeightSummary();
   const gpt55TableModule = getGpt55BypassTableModule(30);
+  const gpt55Analyst = readGpt55Analyst(30);
   const modelRanking = timeseqModelRanking(300);
 
   return {
@@ -2167,6 +2308,7 @@ function getXv1Summary() {
         weights: gpt55V3Weights,
       },
       bypassTable: gpt55TableModule,
+      analyst: gpt55Analyst,
     },
     fusion: {
       top3: xv1Next?.top3 || xv1Current?.top3 || [],
@@ -2188,6 +2330,7 @@ function getXv1Summary() {
       { path: '/gpt55-bypass', label: 'GPT5.5旁路' },
       { path: '/gpt55-bypass-v3', label: 'GPT5.5旁路v3' },
       { path: '/bypass-table', label: '旁路独立表' },
+      { path: '/gpt55-analyst', label: 'GPT5.5分析师' },
       { path: '/modules', label: '模块' },
     ],
     training,
@@ -2317,6 +2460,9 @@ const server = http.createServer((req, res) => {
       }
       if (u.pathname === '/predictions' || u.pathname === '/predictions.html') {
         return sendHtmlFile(res, 'xv1-predictions.html', (html) => injectXv1Data(html, getXv1Summary()));
+      }
+      if (u.pathname === '/gpt55-analyst' || u.pathname === '/gpt55-analyst.html') {
+        return sendHtmlFile(res, 'xv1-gpt55-analyst.html', (html) => injectXv1Data(html, getXv1Summary()));
       }
       if (u.pathname === '/bypass-table' || u.pathname === '/bypass-table.html') {
         return sendHtmlFile(res, 'xv1-bypass-table.html', (html) => injectXv1Data(html, getXv1Summary()));
