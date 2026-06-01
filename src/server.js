@@ -1878,10 +1878,13 @@ function materializeAnalystV3(limit = 60) {
 }
 
 function readAnalystV3(limit = 30) {
+  const latestSource = timeseqPredictionHistory(1)[0]?.target_roundno || null;
+  const latestStored = db.prepare('SELECT target_roundno FROM gpt55_analyst_v3_predictions ORDER BY target_roundno DESC LIMIT 1').get()?.target_roundno || null;
   const existing = db.prepare('SELECT COUNT(*) AS c FROM gpt55_analyst_v3_predictions').get()?.c || 0;
-  const write = existing >= Math.max(1, Number(limit) || 30)
-    ? { written: 0, generatedAt: nowIso(), cached: true }
-    : materializeAnalystV3(Math.max(60, limit));
+  const needsRefresh = !latestSource || !latestStored || String(latestStored) < String(latestSource) || existing < Math.max(1, Number(limit) || 30);
+  const write = needsRefresh
+    ? materializeAnalystV3(Math.max(60, limit))
+    : { written: 0, generatedAt: nowIso(), cached: true, latestStored, latestSource };
   const rows = db.prepare('SELECT * FROM gpt55_analyst_v3_predictions ORDER BY COALESCE(evaluated_at, generated_at) DESC, target_roundno DESC LIMIT ?').all(limit).map((row) => ({ ...row, matrix: parseJsonSafe(row.matrix_json, []), stats: parseJsonSafe(row.stats_json, []), overlap: parseJsonSafe(row.overlap_json, []), top3: parseJsonSafe(row.top3_json, []), reasons: parseJsonSafe(row.reason_json, []), errors: parseJsonSafe(row.error_json, []), actual: parseJsonSafe(row.actual_json, []), compare: parseJsonSafe(row.compare_json, []) }));
   const totals = rows.reduce((acc, row) => { acc.samples += row.evaluated_at ? 1 : 0; acc.possible += Number(row.possible || 0); acc.top1Hits += Number(row.top1_hits || 0); acc.top3Hits += Number(row.top3_hits || 0); return acc; }, { samples: 0, possible: 0, top1Hits: 0, top3Hits: 0 });
   const rate = (hits, total) => total ? Number(((hits / total) * 100).toFixed(2)) : 0;
