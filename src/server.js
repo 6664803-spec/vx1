@@ -90,6 +90,31 @@ CREATE TABLE IF NOT EXISTS timeseq_predictions (
   evaluated_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS gpt55_analyst_v2_predictions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_roundno TEXT NOT NULL UNIQUE,
+  based_on_roundno TEXT,
+  generated_at TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  reliability_json TEXT NOT NULL,
+  top1_json TEXT NOT NULL,
+  coverage_json TEXT NOT NULL,
+  top3_json TEXT NOT NULL,
+  reason_json TEXT NOT NULL,
+  error_json TEXT,
+  actual_json TEXT,
+  compare_json TEXT,
+  top1_hits INTEGER,
+  top3_hits INTEGER,
+  possible INTEGER,
+  top1_rate REAL,
+  top3_rate REAL,
+  evaluated_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_gpt55_analyst_v2_target ON gpt55_analyst_v2_predictions(target_roundno DESC);
+CREATE INDEX IF NOT EXISTS idx_gpt55_analyst_v2_eval ON gpt55_analyst_v2_predictions(evaluated_at DESC);
+
 CREATE TABLE IF NOT EXISTS gpt55_analyst_predictions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   target_roundno TEXT NOT NULL UNIQUE,
@@ -1576,6 +1601,138 @@ function getGpt55V3WeightSummary() {
   });
 }
 
+function buildModelPositionReliability(limit = 100) {
+  const rows = timeseqPredictionHistory(limit).filter((row) => row.evaluated_at && row.model);
+  const keys = ['main', 'v2', 'v3', 'frequency', 'markov', 'xgboost', 'lstm'];
+  const buckets = Array.from({ length: 10 }, (_, pos) => Object.fromEntries(keys.map((key) => [key, { key, label: key, position: pos + 1, possible: 0, top1Hits: 0, top3Hits: 0, missStreak: 0, weight: 1 }])));
+  for (const row of [...rows].sort((a, b) => String(a.target_roundno).localeCompare(String(b.target_roundno)))) {
+    const actualDraw = getDrawByRound(row.target_roundno);
+    if (!actualDraw) continue;
+    const actual = parseDrawNumbers(actualDraw).map((x) => String(x).padStart(2, '0'));
+    const sourceRows = {
+      main: row.top3 || [],
+      v2: buildGpt55BypassRows(row.top3 || [], row.model || null),
+      v3: buildGpt55BypassV3Rows(row.top3 || [], row.model || null),
+      frequency: row.model?.frequency || [],
+      markov: row.model?.markov || [],
+      xgboost: row.model?.xgboost || [],
+      lstm: row.model?.lstm || [],
+    };
+    for (let pos = 0; pos < 10; pos++) {
+      const a = actual[pos];
+      if (!a) continue;
+      for (const key of keys) {
+        const candidates = Array.isArray(sourceRows[key]?.[pos]?.top3) ? sourceRows[key][pos].top3.map((x) => String(x).padStart(2, '0')) : [];
+        if (!candidates.length) continue;
+        const b = buckets[pos][key];
+        b.possible += 1;
+        const top1 = candidates[0] === a;
+        const top3 = candidates.includes(a);
+        if (top1) b.top1Hits += 1;
+        if (top3) { b.top3Hits += 1; b.missStreak = 0; } else b.missStreak += 1;
+      }
+    }
+  }
+  return buckets.map((row) => Object.values(row).map((b) => {
+    const top1Rate = b.possible ? b.top1Hits / b.possible : 0;
+    const top3Rate = b.possible ? b.top3Hits / b.possible : 0;
+    const weight = Math.max(0.25, Math.min(2.5, 0.45 + top1Rate * 4.2 + top3Rate * 1.2 - Math.min(0.8, b.missStreak * 0.06)));
+    return { ...b, top1Rate: Number((top1Rate * 100).toFixed(2)), top3Rate: Number((top3Rate * 100).toFixed(2)), weight: Number(weight.toFixed(4)) };
+  }).sort((a, b) => b.weight - a.weight));
+}
+
+function buildGpt55AnalystV2Prediction(historyRows, sourcePred, reliability) {
+  const top1Rows = [];
+  const coverageRows = [];
+  const top3Rows = [];
+  const reasons = [];
+  for (let pos = 0; pos < 10; pos++) {
+    const rel = reliability[pos] || [];
+    const relMap = Object.fromEntries(rel.map((r) => [r.key, r]));
+    const scores = {};
+    const add = (num, value, channel) => {
+      const n = String(num).padStart(2, '0');
+      const s = scores[n] || { num: n, top1Score: 0, coverScore: 0, channels: [] };
+      s.top1Score += value.top1 || 0;
+      s.coverScore += value.cover || 0;
+      s.channels.push(channel);
+      scores[n] = s;
+    };
+    const addRows = (key, rows) => {
+      const w = relMap[key]?.weight || 1;
+      const top1Rate = Number(relMap[key]?.top1Rate || 0) / 100;
+      const top3Rate = Number(relMap[key]?.top3Rate || 0) / 100;
+      (rows?.[pos]?.top3 || []).forEach((n, idx) => add(n, { top1: (3.8 - idx) * w * (0.75 + top1Rate), cover: (3.2 - idx * 0.65) * w * (0.75 + top3Rate) }, key));
+    };
+    addRows('main', sourcePred.main);
+    addRows('v2', sourcePred.v2);
+    addRows('v3', sourcePred.v3);
+    addRows('frequency', sourcePred.frequency);
+    addRows('markov', sourcePred.markov);
+    addRows('xgboost', sourcePred.xgboost);
+    addRows('lstm', sourcePred.lstm);
+    const lastSeen = {};
+    historyRows.forEach((draw, idx) => { const n = parseDrawNumbers(draw).map((x) => String(x).padStart(2, '0'))[pos]; if (n) lastSeen[n] = idx; });
+    for (let i = 1; i <= 10; i++) {
+      const n = String(i).padStart(2, '0');
+      const gap = lastSeen[n] == null ? historyRows.length : historyRows.length - 1 - lastSeen[n];
+      const s = scores[n] || { num: n, top1Score: 0, coverScore: 0, channels: [] };
+      if (gap >= 8 && gap <= 24) s.coverScore += 0.9;
+      if (gap <= 2) s.top1Score -= 0.45;
+      scores[n] = s;
+    }
+    const top1Rank = Object.values(scores).sort((a, b) => b.top1Score - a.top1Score || a.num.localeCompare(b.num));
+    const coverRank = Object.values(scores).sort((a, b) => b.coverScore - a.coverScore || a.num.localeCompare(b.num));
+    const first = top1Rank[0]?.num || '01';
+    const picks = [first];
+    for (const c of coverRank) if (!picks.includes(c.num)) picks.push(c.num); 
+    const top3 = picks.slice(0, 3);
+    top1Rows.push({ label: `第${pos + 1}名`, top1: first, score: Number((top1Rank[0]?.top1Score || 0).toFixed(4)), bestModel: rel[0]?.key || '-' });
+    coverageRows.push({ label: `第${pos + 1}名`, coverage: top3.slice(1), score: Number((top3.reduce((a, n) => a + (scores[n]?.coverScore || 0), 0)).toFixed(4)) });
+    top3Rows.push({ label: `第${pos + 1}名`, top3, score: Number((top1Rank[0]?.top1Score || 0).toFixed(4)), confidence: Number(Math.min(0.99, (top1Rank[0]?.top1Score || 0) / Math.max(1, top3.reduce((a, n) => a + (scores[n]?.top1Score || 0), 0))).toFixed(4)), source: 'gpt55-analyst-v2', note: 'Top1专用选择 + Top3覆盖补充 + 分位置模型可靠度' });
+    reasons.push({ label: `第${pos + 1}名`, top1: first, top3, bestModels: rel.slice(0, 3), reason: `Top1优先信任 ${rel[0]?.key || '-'}；Top3用覆盖分补充 ${top3.slice(1).join('/')}` });
+  }
+  return { top1Rows, coverageRows, top3Rows, reasons, reliability };
+}
+
+function buildAnalystError(compareRows) {
+  return (compareRows || []).filter((c) => !c.top3Hit).map((c) => ({ label: c.label, actual: c.actual, predicted: c.top3, missReason: c.top1Hit ? 'Top1命中但标记异常' : 'Top3未覆盖', badSignal: '候选覆盖不足或位置可靠度误判', adjustment: '降低本位置失效模型权重，增加覆盖候选' }));
+}
+
+function materializeGpt55AnalystV2(limit = 60) {
+  const reliability = buildModelPositionReliability(100);
+  const rows = timeseqPredictionHistory(limit);
+  const generatedAt = nowIso();
+  const stmt = db.prepare(`
+    INSERT INTO gpt55_analyst_v2_predictions (target_roundno,based_on_roundno,generated_at,model_version,reliability_json,top1_json,coverage_json,top3_json,reason_json,error_json,actual_json,compare_json,top1_hits,top3_hits,possible,top1_rate,top3_rate,evaluated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(target_roundno) DO UPDATE SET based_on_roundno=excluded.based_on_roundno,generated_at=excluded.generated_at,model_version=excluded.model_version,reliability_json=excluded.reliability_json,top1_json=excluded.top1_json,coverage_json=excluded.coverage_json,top3_json=excluded.top3_json,reason_json=excluded.reason_json,error_json=excluded.error_json,actual_json=excluded.actual_json,compare_json=excluded.compare_json,top1_hits=excluded.top1_hits,top3_hits=excluded.top3_hits,possible=excluded.possible,top1_rate=excluded.top1_rate,top3_rate=excluded.top3_rate,evaluated_at=excluded.evaluated_at
+  `);
+  let written = 0;
+  for (const row of rows) {
+    const baseDraw = getDrawByRound(row.based_on_roundno) || getDrawByRound(String(Number(row.target_roundno || 0) - 1));
+    if (!baseDraw) continue;
+    const hist = db.prepare('SELECT * FROM draws WHERE roundno <= ? ORDER BY roundno DESC LIMIT 360').all(baseDraw.roundno).reverse();
+    const sourcePred = { main: row.top3 || [], v2: buildGpt55BypassRows(row.top3 || [], row.model || null), v3: buildGpt55BypassV3Rows(row.top3 || [], row.model || null), frequency: row.model?.frequency || [], markov: row.model?.markov || [], xgboost: row.model?.xgboost || [], lstm: row.model?.lstm || [] };
+    const pred = buildGpt55AnalystV2Prediction(hist, sourcePred, reliability);
+    const cmp = compareAnalystPrediction(row.target_roundno, pred.top3Rows);
+    const errors = buildAnalystError(cmp.compare);
+    const possible = cmp.possible || 10;
+    stmt.run(String(row.target_roundno || ''), row.based_on_roundno ? String(row.based_on_roundno) : null, generatedAt, 'gpt55-analyst-v2', JSON.stringify(reliability), JSON.stringify(pred.top1Rows), JSON.stringify(pred.coverageRows), JSON.stringify(pred.top3Rows), JSON.stringify(pred.reasons), JSON.stringify(errors), JSON.stringify(cmp.actual), JSON.stringify(cmp.compare), cmp.top1Hits, cmp.top3Hits, possible, possible ? (cmp.top1Hits / possible) * 100 : 0, possible ? (cmp.top3Hits / possible) * 100 : 0, row.evaluated_at || null);
+    written += 1;
+  }
+  return { written, generatedAt };
+}
+
+function readGpt55AnalystV2(limit = 30) {
+  const write = materializeGpt55AnalystV2(Math.max(60, limit));
+  const rows = db.prepare('SELECT * FROM gpt55_analyst_v2_predictions ORDER BY COALESCE(evaluated_at, generated_at) DESC, target_roundno DESC LIMIT ?').all(Math.max(1, Math.min(300, Number(limit) || 30))).map((row) => ({ ...row, reliability: parseJsonSafe(row.reliability_json, []), top1: parseJsonSafe(row.top1_json, []), coverage: parseJsonSafe(row.coverage_json, []), top3: parseJsonSafe(row.top3_json, []), reasons: parseJsonSafe(row.reason_json, []), errors: parseJsonSafe(row.error_json, []), actual: parseJsonSafe(row.actual_json, []), compare: parseJsonSafe(row.compare_json, []) }));
+  const totals = rows.reduce((acc, row) => { acc.samples += row.evaluated_at ? 1 : 0; acc.possible += Number(row.possible || 0); acc.top1Hits += Number(row.top1_hits || 0); acc.top3Hits += Number(row.top3_hits || 0); return acc; }, { samples: 0, possible: 0, top1Hits: 0, top3Hits: 0 });
+  const rate = (hits, total) => total ? Number(((hits / total) * 100).toFixed(2)) : 0;
+  const latest = rows[0] || null;
+  return { enabled: true, name: 'GPT5.5 分析师 v2', table: 'gpt55_analyst_v2_predictions', mode: 'analyst-v2-shadow', description: '分位置可靠度 + Top1/Top3分离 + 错误原因反推；只展示和回测。', lastWrite: write, metrics: { ...totals, top1Rate: rate(totals.top1Hits, totals.possible), top3Rate: rate(totals.top3Hits, totals.possible) }, latest, rows };
+}
+
 function buildGpt55AnalystPrediction(historyRows, currentPred, bypassV2, bypassV3) {
   const top3 = [];
   const reasons = [];
@@ -2227,6 +2384,7 @@ function getXv1Summary() {
   const gpt55V3Weights = getGpt55V3WeightSummary();
   const gpt55TableModule = getGpt55BypassTableModule(30);
   const gpt55Analyst = readGpt55Analyst(30);
+  const gpt55AnalystV2 = readGpt55AnalystV2(30);
   const modelRanking = timeseqModelRanking(300);
 
   return {
@@ -2309,6 +2467,7 @@ function getXv1Summary() {
       },
       bypassTable: gpt55TableModule,
       analyst: gpt55Analyst,
+      analystV2: gpt55AnalystV2,
     },
     fusion: {
       top3: xv1Next?.top3 || xv1Current?.top3 || [],
@@ -2331,6 +2490,7 @@ function getXv1Summary() {
       { path: '/gpt55-bypass-v3', label: 'GPT5.5旁路v3' },
       { path: '/bypass-table', label: '旁路独立表' },
       { path: '/gpt55-analyst', label: 'GPT5.5分析师' },
+      { path: '/gpt55-analyst-v2', label: 'GPT5.5分析师v2' },
       { path: '/modules', label: '模块' },
     ],
     training,
@@ -2460,6 +2620,9 @@ const server = http.createServer((req, res) => {
       }
       if (u.pathname === '/predictions' || u.pathname === '/predictions.html') {
         return sendHtmlFile(res, 'xv1-predictions.html', (html) => injectXv1Data(html, getXv1Summary()));
+      }
+      if (u.pathname === '/gpt55-analyst-v2' || u.pathname === '/gpt55-analyst-v2.html') {
+        return sendHtmlFile(res, 'xv1-gpt55-analyst-v2.html', (html) => injectXv1Data(html, getXv1Summary()));
       }
       if (u.pathname === '/gpt55-analyst' || u.pathname === '/gpt55-analyst.html') {
         return sendHtmlFile(res, 'xv1-gpt55-analyst.html', (html) => injectXv1Data(html, getXv1Summary()));
